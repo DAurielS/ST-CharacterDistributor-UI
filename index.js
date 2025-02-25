@@ -6,7 +6,7 @@ import { extension_settings, getContext, loadExtensionSettings } from "../../../
 import { saveSettingsDebounced } from "../../../../script.js";
 
 // Extension metadata
-const MODULE_NAME = 'ST-CharacterDistributor';
+const MODULE_NAME = 'ST-CharacterDistributor-UI';
 const extensionFolderPath = `/scripts/extensions/third-party/${MODULE_NAME}`;
 
 // Default settings
