@@ -1,0 +1,97 @@
+<div id="character_distributor_settings">
+    <div class="settings_block">
+        <h3>Character Distributor Settings</h3>
+        
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>Configuration</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <div class="flex-container flexFlowColumn">
+                    <label for="dropbox_app_key">Dropbox App Key:</label>
+                    <input type="text" id="dropbox_app_key" class="text_pole wide50p">
+                    
+                    <label for="dropbox_app_secret">Dropbox App Secret:</label>
+                    <input type="password" id="dropbox_app_secret" class="text_pole wide50p">
+                    
+                    <label for="auto_sync">
+                        <input type="checkbox" id="auto_sync">
+                        Enable automatic syncing
+                    </label>
+                    
+                    <label for="sync_interval">Sync interval (minutes):</label>
+                    <input type="number" id="sync_interval" class="text_pole wide20p" min="5" max="1440">
+                    
+                    <label for="exclude_tags">Exclude Tags (comma separated):</label>
+                    <input type="text" id="exclude_tags" placeholder="Private, WIP, etc." class="text_pole wide50p">
+                    
+                    <div class="flex-container wide100p">
+                        <button id="save_settings" class="menu_button">Save Settings</button>
+                        
+                        <button id="force_sync" class="menu_button">Force Sync Now</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>Dropbox Authentication</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <div class="flex-container flexFlowColumn">
+                    <div id="dropbox_auth_status" class="flex-container flexFlowColumn">
+                        <div>Status: <span id="auth_status">Not authenticated</span></div>
+                    </div>
+                    
+                    <div class="flex-container wide100p">
+                        <button id="dropbox_auth" class="menu_button">Authenticate with Dropbox</button>
+                        <button id="dropbox_logout" class="menu_button">Logout</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>Sync Status</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <div class="flex-container flexFlowColumn">
+                    <div id="server_status">Server plugin: Checking...</div>
+                    <div id="sync_status">No sync performed yet</div>
+                    <div id="last_sync">Last sync: Never</div>
+                    <div id="shared_characters">Shared characters: 0</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="inline-drawer">
+            <div class="inline-drawer-toggle inline-drawer-header">
+                <b>Share Characters</b>
+                <div class="inline-drawer-icon fa-solid fa-circle-chevron-down"></div>
+            </div>
+            <div class="inline-drawer-content">
+                <div class="flex-container flexFlowColumn">
+                    <p>Create a shareable link for specific characters</p>
+                    
+                    <label for="share_character">Select Character:</label>
+                    <select id="share_character" class="text_pole wide50p"></select>
+                    
+                    <div class="flex-container wide100p">
+                        <button id="get_share_link" class="menu_button">Generate Share Link</button>
+                    </div>
+                    
+                    <div id="share_link_container" style="display: none;">
+                        <label for="share_link">Share Link:</label>
+                        <input type="text" id="share_link" readonly class="text_pole wide100p">
+                        <button id="copy_link" class="menu_button">Copy Link</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
