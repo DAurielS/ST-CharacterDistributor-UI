@@ -1,0 +1,76 @@
+/* Character Distributor Extension styles */
+
+#character_distributor_settings {
+    padding: 10px;
+}
+
+#character_distributor_settings .settings_block {
+    margin-bottom: 20px;
+}
+
+#character_distributor_settings label {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 5px;
+}
+
+#character_distributor_settings .flex-container {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+#character_distributor_settings .flexFlowColumn {
+    flex-direction: column;
+}
+
+#character_distributor_settings .wide20p {
+    width: 20%;
+}
+
+#character_distributor_settings .wide50p {
+    width: 50%;
+}
+
+#character_distributor_settings .wide100p {
+    width: 100%;
+}
+
+#character_distributor_settings .menu_button {
+    margin-top: 10px;
+    padding: 5px 10px;
+}
+
+#character_distributor_settings .text_pole {
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid var(--input-border-color);
+    background-color: var(--input-background-color);
+    color: var(--input-text-color);
+}
+
+#character_distributor_settings select {
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid var(--input-border-color);
+    background-color: var(--input-background-color);
+    color: var(--input-text-color);
+}
+
+#character_distributor_settings #share_link_container {
+    margin-top: 15px;
+    padding: 10px;
+    border: 1px solid var(--input-border-color);
+    border-radius: 4px;
+    background-color: var(--bg3);
+}
+
+#character_distributor_settings #sync_status,
+#character_distributor_settings #server_status,
+#character_distributor_settings #last_sync,
+#character_distributor_settings #shared_characters,
+#character_distributor_settings #auth_status {
+    padding: 5px;
+    margin: 5px 0;
+}
