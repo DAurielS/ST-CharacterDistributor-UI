@@ -3,14 +3,14 @@
     "loading_order": 9,
     "requires": [],
     "optional": [],
-    "js": "dist/index.js",
-    "css": "dist/style.css",
+    "js": "index.js",
+    "css": "style.css",
     "author": "MonGauss",
     "version": "1.0.0",
     "homepage": "https://github.com/DAurielS/ST-CharacterDistributor-UI",
     "extension_api_version": 1,
     "files": [
-        "dist/settings.html",
-        "dist/public/oauth_callback.html"
+        "settings.html",
+        "public/oauth_callback.html"
     ]
 }
