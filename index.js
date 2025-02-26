@@ -287,12 +287,14 @@ async function triggerSync() {
         // Filter characters based on SillyTavern tags
         const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
         
+        // Get proper request headers and add Content-Type
+        const headers = getRequestHeaders();
+        headers['Content-Type'] = 'application/json';
+        
         // Now send the list of allowed characters to the server
         fetch('/api/plugins/character-distributor/sync', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: headers,
             body: JSON.stringify({
                 allowedCharacterFiles: characterFiles, // Send list of files that are allowed
                 excludeTags: excludeTags // Also send excluded tags for secondary filtering
