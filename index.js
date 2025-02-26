@@ -4,7 +4,7 @@
 // Import SillyTavern functions
 import { extension_settings, getContext, loadExtensionSettings } from "../../../extensions.js";
 import { saveSettingsDebounced, getRequestHeaders, eventSource, event_types, getCharacters } from "../../../../script.js";
-import { getTagsList, getTagKeyForEntity } from "../../../tags.js";
+import { getTagsList, getTagKeyForEntity, tag_map, tags } from "../../../tags.js";
 
 // Extension metadata
 const MODULE_NAME = 'ST-CharacterDistributor-UI';
@@ -251,33 +251,72 @@ function getCharacterTags(characterIdentifier) {
             (characterIdentifier.name || characterIdentifier.avatar || 'Object without name') : 
             characterIdentifier}`);
 
+        // Access tag_map and tags either through imports or window
+        const tagMap = tag_map || window.tag_map;
+        const tagsArray = tags || window.tags;
+        
         // First try using the native tag system with getTagKeyForEntity and getTagsList
         if (typeof getTagKeyForEntity === 'function' && typeof getTagsList === 'function') {
             try {
                 let tagKey = null;
-                // For string identifiers (like a name or filename)
-                if (typeof characterIdentifier === 'string') {
-                    tagKey = getTagKeyForEntity(characterIdentifier);
-                } 
+                
                 // For object identifiers (like a character object)
-                else if (typeof characterIdentifier === 'object' && characterIdentifier !== null) {
-                    // Try various properties that might work as identifiers
-                    tagKey = getTagKeyForEntity(characterIdentifier.name || 
-                                               characterIdentifier.avatar || 
-                                               characterIdentifier.filename);
+                if (typeof characterIdentifier === 'object' && characterIdentifier !== null) {
+                    // SillyTavern uses the avatar field as the key for tags
+                    if (characterIdentifier.avatar) {
+                        tagKey = characterIdentifier.avatar;
+                        console.log(`Character Distributor UI: Using avatar as tag key: ${tagKey}`);
+                    } else if (characterIdentifier.filename) {
+                        tagKey = characterIdentifier.filename;
+                        console.log(`Character Distributor UI: Using filename as tag key: ${tagKey}`);
+                    }
+                } 
+                // For string identifiers (most likely filename or avatar)
+                else if (typeof characterIdentifier === 'string') {
+                    // Try to use the string directly as the tag key
+                    tagKey = characterIdentifier;
+                    console.log(`Character Distributor UI: Using string directly as tag key: ${tagKey}`);
                 }
                 
-                if (tagKey) {
-                    console.log(`Character Distributor UI: Found tag key: ${tagKey}`);
+                // Now check if this tag key exists in the tag_map
+                if (tagKey && tagMap && tagKey in tagMap) {
+                    console.log(`Character Distributor UI: Found tag key in tag_map: ${tagKey}`);
                     const tags = getTagsList(tagKey);
                     if (tags && Array.isArray(tags)) {
-                        console.log(`Character Distributor UI: Retrieved ${tags.length} tags for ${tagKey} using native tag system`);
-                        return tags;
+                        console.log(`Character Distributor UI: Retrieved ${tags.length} user-assigned tags for ${tagKey}`);
+                        return tags.map(tag => tag.name);
                     } else {
                         console.log(`Character Distributor UI: getTagsList returned invalid result for ${tagKey}: ${typeof tags}`);
                     }
-                } else {
-                    console.log('Character Distributor UI: getTagKeyForEntity returned null/undefined');
+                } else if (tagKey) {
+                    // Try to get tag key through the proper function
+                    const properTagKey = getTagKeyForEntity(tagKey);
+                    if (properTagKey) {
+                        console.log(`Character Distributor UI: Found proper tag key: ${properTagKey}`);
+                        const tags = getTagsList(properTagKey);
+                        if (tags && Array.isArray(tags)) {
+                            console.log(`Character Distributor UI: Retrieved ${tags.length} user-assigned tags for ${properTagKey}`);
+                            return tags.map(tag => tag.name);
+                        } else {
+                            console.log(`Character Distributor UI: getTagsList returned invalid result for ${properTagKey}: ${typeof tags}`);
+                        }
+                    } else {
+                        console.log(`Character Distributor UI: getTagKeyForEntity could not find a tag key for: ${tagKey}`);
+                        
+                        // Try using window.tag_map directly if available
+                        if (tagMap && tagMap[tagKey] && Array.isArray(tagMap[tagKey])) {
+                            console.log(`Character Distributor UI: Found tag key in tag_map: ${tagKey}`);
+                            const tagIds = tagMap[tagKey];
+                            const tagObjects = tagIds.map(id => {
+                                return tagsArray ? tagsArray.find(tag => tag.id === id) : null;
+                            }).filter(Boolean);
+                            
+                            if (tagObjects.length > 0) {
+                                console.log(`Character Distributor UI: Retrieved ${tagObjects.length} tags using tag_map directly`);
+                                return tagObjects.map(tag => tag.name);
+                            }
+                        }
+                    }
                 }
             } catch (tagError) {
                 console.warn('Character Distributor UI: Error using native tag system:', tagError);
@@ -285,6 +324,8 @@ function getCharacterTags(characterIdentifier) {
         } else {
             console.log('Character Distributor UI: Native tag functions not available');
         }
+        
+        // If we get here, we couldn't get the user-assigned tags, so fall back to the character file tags
         
         // Fallback to direct character object access
         if (typeof characterIdentifier === 'object' && characterIdentifier !== null) {
@@ -389,6 +430,35 @@ function getCharacterTags(characterIdentifier) {
     }
     
     return [];
+}
+
+// Check if a character has any of the specified excluded tags
+function characterHasExcludedTags(character, excludeTags) {
+    if (!character || !excludeTags || !Array.isArray(excludeTags) || excludeTags.length === 0) {
+        return false;
+    }
+    
+    // Get the character's tags
+    const characterTags = getCharacterTags(character);
+    
+    // Log the found tags for debugging
+    const charName = typeof character === 'object' ? (character.name || 'Unknown') : character;
+    console.log(`Character Distributor UI: ${charName} has ${characterTags.length} tags: ${characterTags.join(', ')}`);
+    
+    // Check if any of the character's tags are in the excluded tags list
+    const excluded = characterTags.some(tag => 
+        excludeTags.some(excludeTag => 
+            // Case-insensitive comparison
+            typeof tag === 'string' && typeof excludeTag === 'string' && 
+            tag.toLowerCase() === excludeTag.toLowerCase()
+        )
+    );
+    
+    if (excluded) {
+        console.log(`Character Distributor UI: Character ${charName} has excluded tags`);
+    }
+    
+    return excluded;
 }
 
 // Filter characters based on SillyTavern tags using a more reliable approach
@@ -502,11 +572,8 @@ async function filterCharactersByTags(excludeTags) {
             
             const filename = character.filename || character.avatar;
             
-            // Use our improved getCharacterTags function
-            const characterTags = getCharacterTags(character);
-            
-            // Check if this character has any excluded tags
-            if (characterTags.some(tag => excludeTags.includes(tag))) {
+            // Check if this character has any excluded tags using our utility function
+            if (characterHasExcludedTags(character, excludeTags)) {
                 console.log(`Character Distributor UI: Excluding character with excluded tag: ${filename}`);
                 excludedCharacters.push(filename);
             } else {
@@ -536,6 +603,14 @@ async function triggerSync() {
         // Filter characters based on SillyTavern tags
         const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
         
+        // Log detailed information for debugging
+        console.log(`Character Distributor UI: Will share ${characterFiles.length} characters`);
+        console.log(`Character Distributor UI: Will exclude ${excludedCharacters.length} characters due to tags`);
+        
+        if (excludedCharacters.length > 0) {
+            console.log('Character Distributor UI: Excluded characters:', excludedCharacters);
+        }
+        
         // Get proper request headers and add Content-Type
         const headers = getRequestHeaders();
         headers['Content-Type'] = 'application/json';
@@ -546,7 +621,8 @@ async function triggerSync() {
             headers: headers,
             body: JSON.stringify({
                 allowedCharacterFiles: characterFiles, // Send list of files that are allowed
-                excludeTags: excludeTags // Also send excluded tags for secondary filtering
+                excludeTags: excludeTags, // Also send excluded tags for secondary filtering
+                excludedCharacters: excludedCharacters // Explicitly send the excluded character list
             })
         })
         .then(response => response.json())
@@ -558,14 +634,32 @@ async function triggerSync() {
                     `Synced ${data.count} characters` + (data.removed ? `, removed ${data.removed}` : '') : 
                     'Sync failed'
             });
+            
+            // Log the response for debugging
+            console.log('Character Distributor UI: Sync response:', data);
+            
+            // Show a toast with more details if available
+            if (data.success) {
+                const details = [];
+                if (data.count !== undefined) details.push(`Synced: ${data.count}`);
+                if (data.added !== undefined) details.push(`Added: ${data.added}`);
+                if (data.removed !== undefined) details.push(`Removed: ${data.removed}`);
+                if (data.excluded !== undefined) details.push(`Excluded: ${data.excluded}`);
+                
+                toastr.success(details.join(' | '), 'Sync Complete');
+            } else {
+                toastr.error(data.error || 'Unknown error occurred', 'Sync Failed');
+            }
         })
         .catch(error => {
             console.error('Character Distributor UI: Error during sync', error);
             updateSyncStatus({ success: false, message: 'Sync failed. Check server logs.' });
+            toastr.error('Error during sync operation. Check the console for details.');
         });
     } catch (error) {
         console.error('Character Distributor UI: Error during sync preparation', error);
         updateSyncStatus({ success: false, message: 'Error preparing sync. Check console logs.' });
+        toastr.error('Error preparing sync. Check the console for details.');
     }
 }
 
