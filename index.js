@@ -214,29 +214,48 @@ async function initializeUI() {
     if (typeof eventSource !== 'undefined' && typeof event_types !== 'undefined') {
         console.log('Character Distributor UI: Setting up event listeners for SillyTavern events');
 
-        // Only listen for actual character changes, not page loads
-        eventSource.on(event_types.CHARACTER_EDITED, function() {
-            console.log('Character Distributor UI: Event character_edited triggered, refreshing character list');
-            refreshCharacterList();
-        });
+        // Check each event type exists before registering listeners
+        // Known event in SillyTavern: CHARACTER_EDITED
+        if (event_types.CHARACTER_EDITED) {
+            eventSource.on(event_types.CHARACTER_EDITED, function() {
+                console.log('Character Distributor UI: Event character_edited triggered, refreshing character list');
+                refreshCharacterList();
+            });
+        } else {
+            console.warn('Character Distributor UI: CHARACTER_EDITED event type not found');
+        }
 
-        eventSource.on(event_types.CHARACTER_DELETED, function() {
-            console.log('Character Distributor UI: Event character_deleted triggered, refreshing character list');
-            refreshCharacterList();
-        });
+        // Known event in SillyTavern: CHARACTER_DELETED 
+        if (event_types.CHARACTER_DELETED) {
+            eventSource.on(event_types.CHARACTER_DELETED, function() {
+                console.log('Character Distributor UI: Event character_deleted triggered, refreshing character list');
+                refreshCharacterList();
+            });
+        } else {
+            console.warn('Character Distributor UI: CHARACTER_DELETED event type not found');
+        }
         
-        eventSource.on(event_types.CHARACTER_CREATED, function() {
-            console.log('Character Distributor UI: Event character_created triggered, refreshing character list');
-            refreshCharacterList();
-        });
+        // Known event in SillyTavern: CHARACTER_DUPLICATED (instead of CHARACTER_CREATED)
+        if (event_types.CHARACTER_DUPLICATED) {
+            eventSource.on(event_types.CHARACTER_DUPLICATED, function() {
+                console.log('Character Distributor UI: Event character_duplicated triggered, refreshing character list');
+                refreshCharacterList();
+            });
+        } else {
+            console.warn('Character Distributor UI: CHARACTER_DUPLICATED event type not found');
+        }
         
-        // We can also use a catch-all for any character change events we might have missed
-        eventSource.on(event_types.CHARACTERS_UPDATED, function() {
-            console.log('Character Distributor UI: Event characters_updated triggered, refreshing character list');
-            refreshCharacterList();
-        });
+        // Known event in SillyTavern: CHARACTER_PAGE_LOADED
+        if (event_types.CHARACTER_PAGE_LOADED) {
+            eventSource.on(event_types.CHARACTER_PAGE_LOADED, function() {
+                console.log('Character Distributor UI: Event character_page_loaded triggered, refreshing character list');
+                refreshCharacterList();
+            });
+        } else {
+            console.warn('Character Distributor UI: CHARACTER_PAGE_LOADED event type not found');
+        }
     } else {
-        console.warn('Character Distributor UI: SillyTavern eventSource or event_types not available, cannot set up event listeners');
+        console.warn('Character Distributor UI: eventSource or event_types not available, character list will not auto-refresh');
     }
 
     // Initial character list loading
