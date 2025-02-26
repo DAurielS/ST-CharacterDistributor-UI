@@ -4,7 +4,8 @@
 // Import SillyTavern functions
 import { extension_settings, getContext, loadExtensionSettings } from "../../../extensions.js";
 import { saveSettingsDebounced, getRequestHeaders, eventSource, event_types } from "../../../../script.js";
-import { getCharacters, getTags } from "../../../../script.js";
+import { getCharacters } from "../../../../script.js";
+import { getTagsList, getTagKeyForEntity } from "../../../../tags.js";
 
 // Extension metadata
 const MODULE_NAME = 'ST-CharacterDistributor-UI';
@@ -207,54 +208,120 @@ async function initializeUI() {
     
     // Listen for SillyTavern character changes
     if (eventSource && event_types) {
-        eventSource.on(event_types.CHARACTERS_LOADED, () => {
-            console.log('Character Distributor UI: Characters loaded, refreshing list');
+        // Listen for character list updates
+        eventSource.addEventListener(event_types.CHARACTERS_LOADED, function() {
+            console.log('Character Distributor UI: Characters updated, refreshing list');
             loadCharacterList();
         });
     }
+    
+    // Load the character list for the share dropdown
+    loadCharacterList();
 }
 
 // Get character tags using SillyTavern's native tag system
-function getCharacterTags(characterName) {
+function getCharacterTags(characterIdentifier) {
     try {
-        // First attempt to use the native getCharacters function if available
+        // First try using the native tag system with getTagKeyForEntity and getTagsList
+        if (typeof getTagKeyForEntity === 'function' && typeof getTagsList === 'function') {
+            const tagKey = getTagKeyForEntity(characterIdentifier);
+            if (tagKey) {
+                const tags = getTagsList(tagKey);
+                if (tags && Array.isArray(tags)) {
+                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags for ${tagKey} using native tag system`);
+                    return tags;
+                }
+            }
+        }
+        
+        // Fallback to direct character object access
+        if (typeof characterIdentifier === 'object' && characterIdentifier !== null) {
+            if (characterIdentifier.tags) {
+                const tags = Array.isArray(characterIdentifier.tags) ? 
+                    characterIdentifier.tags : 
+                    (typeof characterIdentifier.tags === 'string' ? 
+                        characterIdentifier.tags.split(',').map(t => t.trim()) : 
+                        []);
+                
+                if (tags.length > 0) {
+                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags directly from character object`);
+                    return tags;
+                }
+            }
+            
+            // If we're dealing with a character object but no name/identifier provided,
+            // set the characterIdentifier to the name or avatar for fallback methods
+            characterIdentifier = characterIdentifier.name || characterIdentifier.avatar;
+        }
+        
+        // Fallback approaches from the original implementation
+        // 1. Try getCharacters()
         const characters = getCharacters();
         
         if (characters && Array.isArray(characters)) {
             const character = characters.find(char => 
-                char.name === characterName || 
-                char.avatar === characterName || 
-                (char.filename && char.filename === characterName));
+                char.name === characterIdentifier || 
+                char.avatar === characterIdentifier || 
+                (char.filename && char.filename === characterIdentifier));
             
             if (character && character.tags) {
-                return Array.isArray(character.tags) ? character.tags : [];
+                const tags = Array.isArray(character.tags) ? 
+                    character.tags : 
+                    (typeof character.tags === 'string' ? 
+                        character.tags.split(',').map(t => t.trim()) : 
+                        []);
+                
+                if (tags.length > 0) {
+                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags via getCharacters()`);
+                    return tags;
+                }
             }
         }
         
-        // Fallback approach using context data
+        // 2. Try context data
         const context = getContext();
         if (context && context.characters) {
             const character = Object.values(context.characters).find(char => 
-                char.name === characterName || 
-                char.avatar === characterName);
+                char.name === characterIdentifier || 
+                char.avatar === characterIdentifier);
             
             if (character && character.tags) {
-                return Array.isArray(character.tags) ? character.tags : [];
+                const tags = Array.isArray(character.tags) ? 
+                    character.tags : 
+                    (typeof character.tags === 'string' ? 
+                        character.tags.split(',').map(t => t.trim()) : 
+                        []);
+                
+                if (tags.length > 0) {
+                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags via context data`);
+                    return tags;
+                }
             }
         }
         
-        // Last resort - check window.characters
+        // 3. Try window.characters
         if (window.characters && Array.isArray(window.characters)) {
             const character = window.characters.find(char => 
-                char.name === characterName || 
-                char.avatar === characterName);
+                char.name === characterIdentifier || 
+                char.avatar === characterIdentifier);
             
             if (character && character.tags) {
-                return Array.isArray(character.tags) ? character.tags : [];
+                const tags = Array.isArray(character.tags) ? 
+                    character.tags : 
+                    (typeof character.tags === 'string' ? 
+                        character.tags.split(',').map(t => t.trim()) : 
+                        []);
+                
+                if (tags.length > 0) {
+                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags via window.characters`);
+                    return tags;
+                }
             }
         }
+        
+        console.log(`Character Distributor UI: No tags found for character: ${characterIdentifier}`);
     } catch (error) {
-        console.error('Character Distributor UI: Error getting character tags', error);
+        console.error(`Character Distributor UI: Error getting character tags for ${characterIdentifier}`, error);
     }
     
     return [];
@@ -323,27 +390,8 @@ async function filterCharactersByTags(excludeTags) {
             
             const filename = character.filename || character.avatar;
             
-            // Get character tags, ensuring we have an array
-            let characterTags = [];
-            
-            // Direct tag access from character object
-            if (character.tags) {
-                characterTags = Array.isArray(character.tags) ? character.tags : 
-                               (typeof character.tags === 'string' ? character.tags.split(',').map(t => t.trim()) : []);
-            }
-            
-            // If we have no tags yet, try fetching tags specifically
-            if (characterTags.length === 0 && typeof getTags === 'function') {
-                try {
-                    // Try to get tags using the native getTags function if available
-                    const tags = getTags(character.avatar || character.filename);
-                    if (tags && Array.isArray(tags)) {
-                        characterTags = tags;
-                    }
-                } catch (tagError) {
-                    console.warn(`Character Distributor UI: Error getting tags for ${filename}:`, tagError);
-                }
-            }
+            // Use our improved getCharacterTags function
+            const characterTags = getCharacterTags(character);
             
             // Check if this character has any excluded tags
             if (characterTags.some(tag => excludeTags.includes(tag))) {
