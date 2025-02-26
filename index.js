@@ -558,7 +558,7 @@ function copyShareLink() {
 
 // Load character list for sharing
 function loadCharacterList() {
-    fetch('/api/characters/list', {
+    fetch('/api/plugins/character-distributor/characters', {
         headers: getRequestHeaders()
     })
     .then(response => response.json())
