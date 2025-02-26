@@ -340,11 +340,22 @@ function submitManualToken() {
     }
     
     console.log('Character Distributor UI: Submitting manual token');
+    console.log('Character Distributor UI: Token length:', accessToken.length);
     
-    // Send token to server plugin
+    // Make sure we have app keys configured
+    if (!extension_settings[MODULE_NAME].dropboxAppKey || !extension_settings[MODULE_NAME].dropboxAppSecret) {
+        toastr.error('Please enter your Dropbox App Key and App Secret in the settings first');
+        return;
+    }
+    
+    // Ensure headers are set properly
+    const headers = getRequestHeaders();
+    headers['Content-Type'] = 'application/json';
+    
+    // Send token to server plugin with detailed error handling
     fetch('/api/plugins/character-distributor/auth', {
         method: 'POST',
-        headers: getRequestHeaders(),
+        headers: headers,
         body: JSON.stringify({ 
             accessToken, 
             tokenType: 'bearer', 
@@ -352,7 +363,26 @@ function submitManualToken() {
         })
     })
     .then(response => {
-        if (response.ok) {
+        console.log('Character Distributor UI: Auth response status:', response.status);
+        
+        // Try to get detailed error information
+        return response.text().then(text => {
+            let data = {};
+            try {
+                // Try to parse as JSON if possible
+                data = text ? JSON.parse(text) : {};
+            } catch (e) {
+                console.log('Character Distributor UI: Response is not JSON:', text);
+                // Just store the raw text
+                data = { rawText: text };
+            }
+            return { status: response.status, ok: response.ok, data };
+        });
+    })
+    .then(({ status, ok, data }) => {
+        console.log('Character Distributor UI: Parsed response data:', data);
+        
+        if (ok) {
             $('#auth_status').text('Authenticated');
             $('#auth_status').addClass('success').removeClass('error');
             $('#manual_access_token').val(''); // Clear the token field for security
@@ -363,12 +393,23 @@ function submitManualToken() {
         } else {
             $('#auth_status').text('Authentication failed');
             $('#auth_status').addClass('error').removeClass('success');
-            toastr.error('Failed to save Dropbox authentication');
+            
+            // Show a more detailed error message if available
+            let errorMsg = 'Failed to authenticate with Dropbox';
+            if (data.error) {
+                errorMsg += ': ' + data.error;
+            } else if (data.rawText) {
+                errorMsg += ' (check console for details)';
+            }
+            
+            toastr.error(errorMsg);
         }
     })
     .catch(error => {
-        console.error('Character Distributor UI: Error saving auth token', error);
-        toastr.error('Error saving Dropbox authentication');
+        console.error('Character Distributor UI: Error during authentication:', error);
+        $('#auth_status').text('Authentication failed');
+        $('#auth_status').addClass('error').removeClass('success');
+        toastr.error('Error during Dropbox authentication: ' + error.message);
     });
 }
 
@@ -380,14 +421,46 @@ function handleDropboxAuthCallback(event) {
         const { accessToken, tokenType, expiresIn } = event.data;
         
         if (accessToken) {
+            console.log('Character Distributor UI: Received token length:', accessToken.length);
+            
+            // Make sure we have app keys configured
+            if (!extension_settings[MODULE_NAME].dropboxAppKey || !extension_settings[MODULE_NAME].dropboxAppSecret) {
+                console.error('Character Distributor UI: App Key or Secret not configured');
+                toastr.error('Please enter your Dropbox App Key and App Secret in the settings first');
+                return;
+            }
+            
+            // Ensure headers are set properly
+            const headers = getRequestHeaders();
+            headers['Content-Type'] = 'application/json';
+            
             // Send token to server plugin
             fetch('/api/plugins/character-distributor/auth', {
                 method: 'POST',
-                headers: getRequestHeaders(),
+                headers: headers,
                 body: JSON.stringify({ accessToken, tokenType, expiresIn })
             })
             .then(response => {
-                if (response.ok) {
+                console.log('Character Distributor UI: Auth response status:', response.status);
+                
+                // Try to get detailed error information
+                return response.text().then(text => {
+                    let data = {};
+                    try {
+                        // Try to parse as JSON if possible
+                        data = text ? JSON.parse(text) : {};
+                    } catch (e) {
+                        console.log('Character Distributor UI: Response is not JSON:', text);
+                        // Just store the raw text
+                        data = { rawText: text };
+                    }
+                    return { status: response.status, ok: response.ok, data };
+                });
+            })
+            .then(({ status, ok, data }) => {
+                console.log('Character Distributor UI: Parsed response data:', data);
+                
+                if (ok) {
                     $('#auth_status').text('Authenticated');
                     $('#auth_status').addClass('success').removeClass('error');
                     toastr.success('Successfully authenticated with Dropbox');
@@ -397,17 +470,28 @@ function handleDropboxAuthCallback(event) {
                 } else {
                     $('#auth_status').text('Authentication failed');
                     $('#auth_status').addClass('error').removeClass('success');
-                    toastr.error('Failed to save Dropbox authentication');
+                    
+                    // Show a more detailed error message if available
+                    let errorMsg = 'Failed to authenticate with Dropbox';
+                    if (data.error) {
+                        errorMsg += ': ' + data.error;
+                    } else if (data.rawText) {
+                        errorMsg += ' (check console for details)';
+                    }
+                    
+                    toastr.error(errorMsg);
                 }
             })
             .catch(error => {
                 console.error('Character Distributor UI: Error saving auth token', error);
-                toastr.error('Error saving Dropbox authentication');
+                $('#auth_status').text('Authentication failed');
+                $('#auth_status').addClass('error').removeClass('success');
+                toastr.error('Error authenticating with Dropbox: ' + error.message);
             });
         } else {
             $('#auth_status').text('Authentication failed');
             $('#auth_status').addClass('error').removeClass('success');
-            toastr.error('Dropbox authentication failed');
+            toastr.error('Dropbox authentication failed: No token received');
         }
     }
 }
@@ -524,6 +608,14 @@ function checkLocalStorageForToken() {
     console.log('Character Distributor UI: Checking localStorage for token...');
     console.log('Token exists:', !!accessToken);
     console.log('Timestamp exists:', !!timestamp);
+    console.log('Token length:', accessToken?.length || 0);
+    
+    // Make sure we have app keys configured before trying to use the token
+    if (!extension_settings[MODULE_NAME].dropboxAppKey || !extension_settings[MODULE_NAME].dropboxAppSecret) {
+        console.warn('Character Distributor UI: App Key or Secret not configured. Cannot use saved token.');
+        clearLocalStorageTokens();
+        return;
+    }
     
     // If we have a token and it's recent (within last 5 minutes)
     if (accessToken && timestamp) {
@@ -533,10 +625,14 @@ function checkLocalStorageForToken() {
         if (age < 5 * 60 * 1000) { // 5 minutes
             console.log('Character Distributor UI: Found valid auth token in localStorage');
             
+            // Ensure headers are set correctly
+            const headers = getRequestHeaders();
+            headers['Content-Type'] = 'application/json';
+            
             // Send token to server plugin
             fetch('/api/plugins/character-distributor/auth', {
                 method: 'POST',
-                headers: getRequestHeaders(),
+                headers: headers,
                 body: JSON.stringify({ 
                     accessToken, 
                     tokenType: tokenType || 'bearer', 
@@ -550,7 +646,7 @@ function checkLocalStorageForToken() {
                         return text ? JSON.parse(text) : {};
                     } catch (e) {
                         console.error('Failed to parse response:', text);
-                        return {};
+                        return { rawText: text };
                     }
                 }).then(data => {
                     console.log('Auth API response data:', data);
@@ -565,16 +661,26 @@ function checkLocalStorageForToken() {
                     } else {
                         $('#auth_status').text('Authentication failed');
                         $('#auth_status').addClass('error').removeClass('success');
-                        toastr.error('Failed to save Dropbox authentication: ' + (data.error || response.statusText));
+                        
+                        let errorMsg = 'Failed to authenticate with saved token';
+                        if (data.error) {
+                            errorMsg += ': ' + data.error;
+                        } else if (data.rawText) {
+                            errorMsg += ' (check console for details)';
+                        }
+                        
+                        toastr.error(errorMsg);
                     }
                     
-                    // Clear localStorage tokens after use
+                    // Clear localStorage tokens after use regardless of success/failure
                     clearLocalStorageTokens();
                 });
             })
             .catch(error => {
                 console.error('Character Distributor UI: Error saving auth token from localStorage', error);
-                toastr.error('Error saving Dropbox authentication');
+                toastr.error('Error authenticating with Dropbox: ' + error.message);
+                $('#auth_status').text('Authentication failed');
+                $('#auth_status').addClass('error').removeClass('success');
                 clearLocalStorageTokens();
             });
         } else {
