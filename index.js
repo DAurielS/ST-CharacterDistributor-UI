@@ -19,9 +19,10 @@ const defaultSettings = {
     excludeTags: ['Private']
 };
 
-// Add this flag at the top of the file, near other global variables
+// Variables to track loading state
 let isLoadingCharacters = false;
 let characterLoadDebounceTimer = null;
+let charactersLoaded = false;  // New flag to track if initial loading has happened
 
 // Initialize extension settings if needed
 function loadSettings() {
@@ -209,51 +210,58 @@ async function initializeUI() {
     // Listen for Dropbox auth callback
     window.addEventListener('message', handleDropboxAuthCallback);
     
-    // Listen for SillyTavern character changes
-    if (eventSource && event_types) {
+    // Setup event listeners if available
+    if (typeof eventSource !== 'undefined' && typeof event_types !== 'undefined') {
         console.log('Character Distributor UI: Setting up event listeners for SillyTavern events');
-        
-        // Create a debounced character loading function
-        const debouncedLoadCharacters = function() {
-            clearTimeout(characterLoadDebounceTimer);
-            characterLoadDebounceTimer = setTimeout(() => {
-                if (!isLoadingCharacters) {
-                    console.log('Character Distributor UI: Debounced character refresh triggered');
-                    loadCharacterList();
-                } else {
-                    console.log('Character Distributor UI: Skipping debounced load - already in progress');
-                }
-            }, 1000); // 1 second debounce
-        };
-        
-        // Listen for character list updates
-        eventSource.on(event_types.CHARACTERS_LOADED, function() {
-            console.log('Character Distributor UI: Characters updated, debouncing refresh');
-            debouncedLoadCharacters();
+
+        // Only listen for actual character changes, not page loads
+        eventSource.on(event_types.CHARACTER_EDITED, function() {
+            console.log('Character Distributor UI: Event character_edited triggered, refreshing character list');
+            refreshCharacterList();
+        });
+
+        eventSource.on(event_types.CHARACTER_DELETED, function() {
+            console.log('Character Distributor UI: Event character_deleted triggered, refreshing character list');
+            refreshCharacterList();
         });
         
-        // Also listen for other relevant events that might change characters
-        const relevantEvents = [
-            event_types.CHARACTER_EDITED,
-            event_types.CHARACTER_DELETED,
-            event_types.CHARACTER_PAGE_LOADED
-        ];
+        eventSource.on(event_types.CHARACTER_CREATED, function() {
+            console.log('Character Distributor UI: Event character_created triggered, refreshing character list');
+            refreshCharacterList();
+        });
         
-        for (const eventType of relevantEvents) {
-            if (eventType) {
-                console.log(`Character Distributor UI: Adding listener for ${eventType}`);
-                eventSource.on(eventType, function() {
-                    console.log(`Character Distributor UI: Event ${eventType} triggered, debouncing refresh`);
-                    debouncedLoadCharacters();
-                });
-            }
-        }
+        // We can also use a catch-all for any character change events we might have missed
+        eventSource.on(event_types.CHARACTERS_UPDATED, function() {
+            console.log('Character Distributor UI: Event characters_updated triggered, refreshing character list');
+            refreshCharacterList();
+        });
     } else {
-        console.warn('Character Distributor UI: SillyTavern eventSource or event_types not available');
+        console.warn('Character Distributor UI: SillyTavern eventSource or event_types not available, cannot set up event listeners');
+    }
+
+    // Initial character list loading
+    await loadCharacterList();
+    charactersLoaded = true;
+}
+
+// Function to refresh character list with simple debouncing
+function refreshCharacterList() {
+    // Clear any existing timer
+    if (characterLoadDebounceTimer) {
+        clearTimeout(characterLoadDebounceTimer);
     }
     
-    // Load the character list for the share dropdown
-    loadCharacterList();
+    // Set a new timer
+    characterLoadDebounceTimer = setTimeout(async function() {
+        console.log('Character Distributor UI: Debounced character refresh triggered');
+        
+        // Only proceed if not already loading
+        if (!isLoadingCharacters) {
+            await loadCharacterList();
+        } else {
+            console.log('Character Distributor UI: Character list refresh skipped - already loading');
+        }
+    }, 1000); // 1 second debounce
 }
 
 // Get character tags using SillyTavern's native tag system
@@ -1087,7 +1095,7 @@ function copyShareLink() {
 
 // Load character list for sharing using SillyTavern's APIs
 async function loadCharacterList() {
-    // Prevent reentrant calls or quick repeated executions
+    // Already loading characters? Don't start another load
     if (isLoadingCharacters) {
         console.log('Character Distributor UI: Already loading characters, skipping duplicate call');
         return;
@@ -1135,24 +1143,23 @@ async function loadCharacterList() {
                     allCharacters = useFallbackCharacters();
                 }
             } catch (error) {
-                console.log('Character Distributor UI: Error fetching characters from API:', error);
+                console.error('Character Distributor UI: Error fetching characters from API:', error);
                 allCharacters = useFallbackCharacters();
             }
         }
         
-        // Populate dropdown with characters
+        // Validate we got characters
         if (Array.isArray(allCharacters) && allCharacters.length > 0) {
-            populateCharacterDropdown(allCharacters);
             console.log('Character Distributor UI: Loaded', allCharacters.length, 'characters');
+            populateCharacterDropdown(allCharacters);
         } else {
-            console.log('Character Distributor UI: No valid characters found');
-            document.getElementById('share_character').innerHTML = '<option value="">No characters found</option>';
+            console.error('Character Distributor UI: Failed to load characters from all methods');
         }
     } catch (error) {
-        console.error('Character Distributor UI: Error loading character list:', error);
+        console.error('Character Distributor UI: Error in loadCharacterList:', error);
     } finally {
-        // Clear the flag after a short delay to prevent immediate re-entrant calls
-        setTimeout(() => {
+        // Don't immediately clear the flag - wait a bit to prevent rapid re-triggering
+        setTimeout(function() {
             isLoadingCharacters = false;
         }, 500);
     }
