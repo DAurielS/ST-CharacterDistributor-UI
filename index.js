@@ -3,9 +3,8 @@
 
 // Import SillyTavern functions
 import { extension_settings, getContext, loadExtensionSettings } from "../../../extensions.js";
-import { saveSettingsDebounced, getRequestHeaders, eventSource, event_types } from "../../../../script.js";
-import { getCharacters } from "../../../../script.js";
-import { getTagsList, getTagKeyForEntity } from "../../../../tags.js";
+import { saveSettingsDebounced, getRequestHeaders, eventSource, event_types, getCharacters } from "../../../../script.js";
+import { getTagsList, getTagKeyForEntity } from "../../../tags.js";
 
 // Extension metadata
 const MODULE_NAME = 'ST-CharacterDistributor-UI';
