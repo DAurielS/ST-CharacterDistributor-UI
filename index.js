@@ -244,16 +244,6 @@ async function initializeUI() {
         } else {
             console.warn('Character Distributor UI: CHARACTER_DUPLICATED event type not found');
         }
-        
-        // Known event in SillyTavern: CHARACTER_PAGE_LOADED
-        if (event_types.CHARACTER_PAGE_LOADED) {
-            eventSource.on(event_types.CHARACTER_PAGE_LOADED, function() {
-                console.log('Character Distributor UI: Event character_page_loaded triggered, refreshing character list');
-                refreshCharacterList();
-            });
-        } else {
-            console.warn('Character Distributor UI: CHARACTER_PAGE_LOADED event type not found');
-        }
     } else {
         console.warn('Character Distributor UI: eventSource or event_types not available, character list will not auto-refresh');
     }
