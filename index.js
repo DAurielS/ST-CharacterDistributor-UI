@@ -56,6 +56,9 @@ function saveSettings() {
 // Send settings to server plugin
 async function sendSettingsToServer() {
     try {
+        // Log the settings we're about to send
+        console.log('Character Distributor UI: Sending settings to server:', JSON.stringify(extension_settings[MODULE_NAME]));
+        
         const response = await fetch('/api/plugins/character-distributor/settings', {
             method: 'POST',
             headers: getRequestHeaders(),
@@ -65,8 +68,19 @@ async function sendSettingsToServer() {
         if (response.ok) {
             console.log('Character Distributor UI: Settings sent to server plugin');
             toastr.success('Settings saved and sent to server plugin');
+            
+            // Check if response has content
+            try {
+                const responseText = await response.text();
+                if (responseText) {
+                    console.log('Character Distributor UI: Server response:', responseText);
+                }
+            } catch (responseError) {
+                console.warn('Character Distributor UI: Could not parse server response', responseError);
+            }
         } else {
-            console.error('Character Distributor UI: Failed to send settings to server plugin');
+            console.error('Character Distributor UI: Failed to send settings to server plugin, status:', response.status);
+            console.error('Character Distributor UI: Response text:', await response.text());
             toastr.error('Failed to send settings to server plugin');
         }
     } catch (error) {
