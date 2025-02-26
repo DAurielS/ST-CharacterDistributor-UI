@@ -89,37 +89,62 @@
                         statusElement.textContent = 'Authentication successful! You can close this window.';
                         statusElement.className = 'success';
                     } else {
-                        // window.opener is null - likely opened in a new tab rather than a popup
-                        statusElement.textContent = 'Authentication successful, but cannot communicate with SillyTavern. Please copy the token below and manually paste it.';
-                        statusElement.className = 'success';
-                        
-                        // Display token info for manual copying
-                        tokenInfoElement.style.display = 'block';
-                        tokenInfoElement.innerHTML = `
-                            <strong>Access Token:</strong> <br>
-                            <code>${accessToken}</code><br><br>
-                            <strong>Token Type:</strong> ${params.get('token_type') || 'N/A'}<br>
-                            <strong>Expires In:</strong> ${params.get('expires_in') || 'N/A'} seconds<br>
-                            <button id="copy-token">Copy Token</button>
-                        `;
-                        
-                        // Stop auto-close
-                        autoClose = false;
-                        
-                        // Add copy button functionality
-                        document.getElementById('copy-token').addEventListener('click', function() {
-                            navigator.clipboard.writeText(accessToken)
-                                .then(() => {
-                                    this.textContent = 'Copied!';
-                                    setTimeout(() => {
-                                        this.textContent = 'Copy Token';
-                                    }, 2000);
-                                })
-                                .catch(err => {
-                                    console.error('Could not copy text: ', err);
-                                    this.textContent = 'Failed to copy';
-                                });
-                        });
+                        // Try to use localStorage as a fallback when window.opener is null
+                        try {
+                            // Store token in localStorage for the main page to retrieve
+                            localStorage.setItem('dropbox_auth_token', accessToken);
+                            localStorage.setItem('dropbox_token_type', params.get('token_type') || 'bearer');
+                            localStorage.setItem('dropbox_expires_in', params.get('expires_in') || '14400');
+                            localStorage.setItem('dropbox_auth_timestamp', Date.now().toString());
+                            
+                            statusElement.textContent = 'Authentication successful! Token saved. You can now close this window and return to SillyTavern.';
+                            statusElement.className = 'success';
+                            
+                            // Attempt to close this window and focus the opener
+                            setTimeout(() => {
+                                try {
+                                    window.close();
+                                    window.opener && window.opener.focus();
+                                } catch (e) {
+                                    // Silent fail if cannot close
+                                }
+                            }, 2000);
+                        } catch (storageError) {
+                            // If localStorage fails too, fall back to manual copy
+                            console.error('Cannot use localStorage:', storageError);
+                            
+                            // window.opener is null - likely opened in a new tab rather than a popup
+                            statusElement.textContent = 'Authentication successful, but cannot communicate with SillyTavern. Please copy the token below and manually paste it in the SillyTavern UI.';
+                            statusElement.className = 'success';
+                            
+                            // Display token info for manual copying
+                            tokenInfoElement.style.display = 'block';
+                            tokenInfoElement.innerHTML = `
+                                <strong>Access Token:</strong> <br>
+                                <code>${accessToken}</code><br><br>
+                                <strong>Token Type:</strong> ${params.get('token_type') || 'N/A'}<br>
+                                <strong>Expires In:</strong> ${params.get('expires_in') || 'N/A'} seconds<br>
+                                <button id="copy-token">Copy Token</button>
+                            `;
+                            
+                            // Stop auto-close
+                            autoClose = false;
+                            
+                            // Add copy button functionality
+                            document.getElementById('copy-token').addEventListener('click', function() {
+                                navigator.clipboard.writeText(accessToken)
+                                    .then(() => {
+                                        this.textContent = 'Copied!';
+                                        setTimeout(() => {
+                                            this.textContent = 'Copy Token';
+                                        }, 2000);
+                                    })
+                                    .catch(err => {
+                                        console.error('Could not copy text: ', err);
+                                        this.textContent = 'Failed to copy';
+                                    });
+                            });
+                        }
                     }
                 } catch (error) {
                     // Handle any errors in communication

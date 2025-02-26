@@ -88,6 +88,7 @@ async function initializeUI() {
     $('#dropbox_logout').on('click', logoutFromDropbox);
     $('#get_share_link').on('click', generateShareLink);
     $('#copy_link').on('click', copyShareLink);
+    $('#submit_manual_token').on('click', submitManualToken);
     
     // Load current settings
     loadSettings();
@@ -192,8 +193,55 @@ function authenticateWithDropbox() {
     const redirectUri = `${window.location.origin}${extensionFolderPath}/public/oauth_callback.html`;
     const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
     
-    // Open popup for authentication
-    window.open(authUrl, 'dropbox-auth', 'width=800,height=600');
+    // Store a marker in localStorage that we're expecting an auth callback
+    localStorage.setItem('dropboxAuthPending', 'true');
+    
+    // Open popup with specific parameters to ensure window.opener works properly
+    const popup = window.open(authUrl, 'dropbox-auth', 'width=800,height=600,resizable=yes,scrollbars=yes,status=yes');
+    
+    // Check if popup was blocked
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+        toastr.warning('Popup blocked! Please allow popups for this site and try again, or use the manual token input option.');
+    }
+}
+
+// Handle manual token submission
+function submitManualToken() {
+    const accessToken = $('#manual_access_token').val().trim();
+    
+    if (!accessToken) {
+        toastr.error('Please enter an access token');
+        return;
+    }
+    
+    console.log('Character Distributor UI: Submitting manual token');
+    
+    // Send token to server plugin
+    fetch('/api/plugins/character-distributor/auth', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ 
+            accessToken, 
+            tokenType: 'bearer', 
+            expiresIn: 14400 // Default 4 hours expiration if not specified
+        })
+    })
+    .then(response => {
+        if (response.ok) {
+            $('#auth_status').text('Authenticated');
+            $('#auth_status').addClass('success').removeClass('error');
+            $('#manual_access_token').val(''); // Clear the token field for security
+            toastr.success('Successfully authenticated with Dropbox using manual token');
+        } else {
+            $('#auth_status').text('Authentication failed');
+            $('#auth_status').addClass('error').removeClass('success');
+            toastr.error('Failed to save Dropbox authentication');
+        }
+    })
+    .catch(error => {
+        console.error('Character Distributor UI: Error saving auth token', error);
+        toastr.error('Error saving Dropbox authentication');
+    });
 }
 
 // Handle Dropbox auth callback
@@ -324,8 +372,70 @@ jQuery(async () => {
     // Load character list
     loadCharacterList();
     
+    // Check for auth token in localStorage (from callback page)
+    checkLocalStorageForToken();
+    
     console.log('Character Distributor UI: Extension initialized');
 });
+
+// Check localStorage for auth token
+function checkLocalStorageForToken() {
+    // Check if there's a token in localStorage
+    const accessToken = localStorage.getItem('dropbox_auth_token');
+    const tokenType = localStorage.getItem('dropbox_token_type');
+    const expiresIn = localStorage.getItem('dropbox_expires_in');
+    const timestamp = localStorage.getItem('dropbox_auth_timestamp');
+    
+    // If we have a token and it's recent (within last 5 minutes)
+    if (accessToken && timestamp) {
+        const age = Date.now() - parseInt(timestamp, 10);
+        if (age < 5 * 60 * 1000) { // 5 minutes
+            console.log('Character Distributor UI: Found auth token in localStorage');
+            
+            // Send token to server plugin
+            fetch('/api/plugins/character-distributor/auth', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({ 
+                    accessToken, 
+                    tokenType: tokenType || 'bearer', 
+                    expiresIn: expiresIn || '14400'
+                })
+            })
+            .then(response => {
+                if (response.ok) {
+                    $('#auth_status').text('Authenticated');
+                    $('#auth_status').addClass('success').removeClass('error');
+                    toastr.success('Successfully authenticated with Dropbox using saved token');
+                } else {
+                    $('#auth_status').text('Authentication failed');
+                    $('#auth_status').addClass('error').removeClass('success');
+                    toastr.error('Failed to save Dropbox authentication');
+                }
+                
+                // Clear localStorage tokens after use
+                clearLocalStorageTokens();
+            })
+            .catch(error => {
+                console.error('Character Distributor UI: Error saving auth token from localStorage', error);
+                toastr.error('Error saving Dropbox authentication');
+                clearLocalStorageTokens();
+            });
+        } else {
+            // Token is too old, clear it
+            clearLocalStorageTokens();
+        }
+    }
+}
+
+// Clear localStorage tokens
+function clearLocalStorageTokens() {
+    localStorage.removeItem('dropbox_auth_token');
+    localStorage.removeItem('dropbox_token_type');
+    localStorage.removeItem('dropbox_expires_in');
+    localStorage.removeItem('dropbox_auth_timestamp');
+    localStorage.removeItem('dropboxAuthPending');
+}
 
 // Add custom styles
 const styleElement = document.createElement('style');

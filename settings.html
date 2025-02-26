@@ -50,6 +50,17 @@
                         <button id="dropbox_auth" class="menu_button">Authenticate with Dropbox</button>
                         <button id="dropbox_logout" class="menu_button">Logout</button>
                     </div>
+                    
+                    <div id="manual_token_section" class="flex-container flexFlowColumn" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
+                        <p style="font-size: 0.9em;">If automatic authentication fails, you can manually paste the token here:</p>
+                        
+                        <label for="manual_access_token">Access Token:</label>
+                        <textarea id="manual_access_token" class="text_pole wide100p" rows="3" placeholder="Paste your Dropbox access token here"></textarea>
+                        
+                        <div class="flex-container wide100p" style="margin-top: 10px;">
+                            <button id="submit_manual_token" class="menu_button">Submit Token</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
