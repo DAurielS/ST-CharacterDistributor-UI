@@ -56,13 +56,24 @@ function saveSettings() {
 // Send settings to server plugin
 async function sendSettingsToServer() {
     try {
+        // Create a clean copy of the settings to send
+        const settingsToSend = JSON.parse(JSON.stringify(extension_settings[MODULE_NAME]));
+        
         // Log the settings we're about to send
-        console.log('Character Distributor UI: Sending settings to server:', JSON.stringify(extension_settings[MODULE_NAME]));
+        console.log('Character Distributor UI: Sending settings to server:', JSON.stringify(settingsToSend));
+        console.log('Character Distributor UI: Settings type:', typeof settingsToSend);
+        
+        // Log the headers we're using
+        const headers = getRequestHeaders();
+        console.log('Character Distributor UI: Request headers:', JSON.stringify(headers));
+        
+        // Add explicit Content-Type header to ensure proper parsing
+        headers['Content-Type'] = 'application/json';
         
         const response = await fetch('/api/plugins/character-distributor/settings', {
             method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify(extension_settings[MODULE_NAME])
+            headers: headers,
+            body: JSON.stringify(settingsToSend)
         });
         
         if (response.ok) {
@@ -82,10 +93,50 @@ async function sendSettingsToServer() {
             console.error('Character Distributor UI: Failed to send settings to server plugin, status:', response.status);
             console.error('Character Distributor UI: Response text:', await response.text());
             toastr.error('Failed to send settings to server plugin');
+            
+            // Wait a moment then try the echo endpoint for diagnostics
+            setTimeout(testEchoEndpoint, 1000);
         }
     } catch (error) {
         console.error('Character Distributor UI: Error sending settings to server plugin', error);
         toastr.error('Error sending settings to server plugin');
+    }
+}
+
+// Test the echo endpoint to diagnose request handling issues
+async function testEchoEndpoint() {
+    try {
+        console.log('Character Distributor UI: Testing echo endpoint...');
+        
+        // Create a test payload
+        const testPayload = {
+            test: true,
+            timestamp: Date.now(),
+            settings: extension_settings[MODULE_NAME]
+        };
+        
+        // Set up headers with explicit Content-Type
+        const headers = getRequestHeaders();
+        headers['Content-Type'] = 'application/json';
+        
+        const response = await fetch('/api/plugins/character-distributor/echo', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(testPayload)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Character Distributor UI: Echo test successful', result);
+            toastr.info('Echo test successful, check console for details');
+        } else {
+            console.error('Character Distributor UI: Echo test failed, status:', response.status);
+            console.error('Character Distributor UI: Response text:', await response.text());
+            toastr.error('Echo test failed, check console for details');
+        }
+    } catch (error) {
+        console.error('Character Distributor UI: Error testing echo endpoint', error);
+        toastr.error('Error testing echo endpoint');
     }
 }
 
@@ -142,6 +193,7 @@ async function initializeUI() {
     $('#submit_manual_token').on('click', submitManualToken);
     $('#refresh_auth_status').on('click', refreshAuthStatus);
     $('#check_diagnostics').on('click', checkDiagnostics);
+    $('#test_settings_api').on('click', testEchoEndpoint);
     
     // Load current settings
     loadSettings();
