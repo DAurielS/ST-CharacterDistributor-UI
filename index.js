@@ -3,8 +3,8 @@
 
 // Import SillyTavern functions
 import { extension_settings, getContext, loadExtensionSettings } from "../../../extensions.js";
-import { saveSettingsDebounced, getRequestHeaders } from "../../../../script.js";
-// NOTE: We're not importing characters directly, as we'll fetch them via API instead
+import { saveSettingsDebounced, getRequestHeaders, eventSource, event_types } from "../../../../script.js";
+import { getCharacters, getTags } from "../../../../script.js";
 
 // Extension metadata
 const MODULE_NAME = 'ST-CharacterDistributor-UI';
@@ -204,354 +204,208 @@ async function initializeUI() {
     
     // Listen for Dropbox auth callback
     window.addEventListener('message', handleDropboxAuthCallback);
+    
+    // Listen for SillyTavern character changes
+    if (eventSource && event_types) {
+        eventSource.on(event_types.CHARACTERS_LOADED, () => {
+            console.log('Character Distributor UI: Characters loaded, refreshing list');
+            loadCharacterList();
+        });
+    }
 }
 
-// Function to get SillyTavern's character tags
+// Get character tags using SillyTavern's native tag system
 function getCharacterTags(characterName) {
-    // Access SillyTavern's character object
-    if (window.characters && characterName) {
-        const character = window.characters.find(char => 
-            char.name === characterName || char.avatar === characterName);
+    try {
+        // First attempt to use the native getCharacters function if available
+        const characters = getCharacters();
         
-        if (character && character.tags) {
-            return character.tags;
+        if (characters && Array.isArray(characters)) {
+            const character = characters.find(char => 
+                char.name === characterName || 
+                char.avatar === characterName || 
+                (char.filename && char.filename === characterName));
+            
+            if (character && character.tags) {
+                return Array.isArray(character.tags) ? character.tags : [];
+            }
         }
-    }
-    
-    // Alternative method - check the character selector data
-    if (window.chat_metadata && window.chat_metadata.characters) {
-        const character = Object.values(window.chat_metadata.characters)
-            .find(char => char.name === characterName || char.avatar === characterName);
         
-        if (character && character.tags) {
-            return character.tags;
+        // Fallback approach using context data
+        const context = getContext();
+        if (context && context.characters) {
+            const character = Object.values(context.characters).find(char => 
+                char.name === characterName || 
+                char.avatar === characterName);
+            
+            if (character && character.tags) {
+                return Array.isArray(character.tags) ? character.tags : [];
+            }
         }
+        
+        // Last resort - check window.characters
+        if (window.characters && Array.isArray(window.characters)) {
+            const character = window.characters.find(char => 
+                char.name === characterName || 
+                char.avatar === characterName);
+            
+            if (character && character.tags) {
+                return Array.isArray(character.tags) ? character.tags : [];
+            }
+        }
+    } catch (error) {
+        console.error('Character Distributor UI: Error getting character tags', error);
     }
     
     return [];
 }
 
-// Filter characters based on SillyTavern tags
+// Filter characters based on SillyTavern tags using a more reliable approach
 async function filterCharactersByTags(excludeTags) {
     console.log('Character Distributor UI: Filtering characters with excluded tags:', excludeTags);
+    const excludedCharacters = [];
+    const characterFiles = [];
     
-    let characterData = [];
-    
-    // First attempt: Try the characters API endpoint
     try {
-        console.log('Character Distributor UI: Attempting to fetch characters from API...');
+        // Try to use the proper SillyTavern function to get characters
+        let characters = null;
         
-        // This is the primary endpoint in SillyTavern for character list
-        const response = await fetch('/api/characters/all', {
-            headers: getRequestHeaders()
-        });
-        
-        if (response.ok) {
-            characterData = await response.json();
-            console.log(`Character Distributor UI: Successfully fetched ${characterData.length} characters from API`);
-        } else {
-            console.warn('Character Distributor UI: Failed to fetch characters, status:', response.status);
-        }
-    } catch (fetchError) {
-        console.warn('Character Distributor UI: Error fetching characters from API:', fetchError);
-    }
-    
-    // Second attempt: Try the tag API if character API failed
-    if (!characterData || characterData.length === 0) {
+        // Approach 1: Direct use of getCharacters() function
         try {
-            console.log('Character Distributor UI: Attempting to fetch character tags from SillyTavern...');
-            
-            // This endpoint is used in newer SillyTavern versions
-            const tagResponse = await fetch('/api/tags/get', {
-                headers: getRequestHeaders()
-            });
-            
-            if (tagResponse.ok) {
-                const tagData = await tagResponse.json();
-                console.log('Character Distributor UI: Successfully fetched tag data from API');
+            if (typeof getCharacters === 'function') {
+                characters = getCharacters();
+                console.log('Character Distributor UI: Retrieved characters using getCharacters()');
+            }
+        } catch (e) {
+            console.warn('Character Distributor UI: Error using getCharacters():', e);
+        }
+        
+        // Approach 2: Try to get characters from API
+        if (!characters || !Array.isArray(characters) || characters.length === 0) {
+            try {
+                const response = await fetch('/api/characters/all', {
+                    headers: getRequestHeaders()
+                });
                 
-                // Tag data structure might contain character information with their tags
-                if (tagData.characters && Array.isArray(tagData.characters)) {
-                    characterData = tagData.characters;
-                    console.log(`Character Distributor UI: Found ${characterData.length} characters from tag data`);
-                } else if (tagData.tag_map) {
-                    // If we only have the tag map, we need to merge it with character data
-                    console.log('Character Distributor UI: Found tag_map, fetching characters separately');
-                    
-                    // Try to get characters list from another endpoint
-                    try {
-                        const charResponse = await fetch('/api/characters/list', {
-                            headers: getRequestHeaders()
-                        });
-                        
-                        if (charResponse.ok) {
-                            const charList = await charResponse.json();
-                            console.log(`Character Distributor UI: Found ${charList.length} characters from list API`);
-                            
-                            // Combine character list with tag map
-                            characterData = charList.map(char => {
-                                // Get character tags from tag_map if available
-                                const charName = char.name || '';
-                                const charTags = tagData.tag_map[charName] || [];
-                                
-                                return {
-                                    ...char,
-                                    tags: charTags
-                                };
-                            });
-                        }
-                    } catch (charError) {
-                        console.warn('Character Distributor UI: Error fetching character list:', charError);
-                    }
+                if (response.ok) {
+                    characters = await response.json();
+                    console.log('Character Distributor UI: Retrieved characters using API');
                 }
-            } else {
-                console.warn('Character Distributor UI: Failed to fetch tag data, status:', tagResponse.status);
-            }
-        } catch (tagError) {
-            console.warn('Character Distributor UI: Error fetching tag data:', tagError);
-        }
-    }
-    
-    // Last resort: Try global variables if API methods failed
-    if (!characterData || characterData.length === 0) {
-        console.log('Character Distributor UI: API methods failed, trying global variables...');
-        
-        // Try all possible ways to access the character list
-        let globalCharacters = null;
-        
-        // Different versions of SillyTavern may have characters in different global variables
-        const possibleGlobalPaths = [
-            window.characters,
-            window.SillyTavern?.characters,
-            window.getCharacters && window.getCharacters(),
-            window.Characters?.getCharacters(),
-            window.charactersList
-        ];
-        
-        for (const path of possibleGlobalPaths) {
-            if (path && Array.isArray(path) && path.length > 0) {
-                globalCharacters = path;
-                console.log('Character Distributor UI: Found characters in global variable');
-                break;
+            } catch (e) {
+                console.warn('Character Distributor UI: Error fetching characters from API:', e);
             }
         }
         
-        if (globalCharacters) {
-            characterData = globalCharacters.map(char => {
-                // Try to get tags for this character using global tag functions
-                let charTags = [];
-                
-                // Try different methods to get character tags
+        // Approach 3: Fallback to window variables
+        if (!characters || !Array.isArray(characters) || characters.length === 0) {
+            characters = window.characters || 
+                        (window.getCharacters && window.getCharacters()) || 
+                        (window.charactersList) || 
+                        Object.values(window.chat_metadata?.characters || {});
+            
+            if (characters && Array.isArray(characters) && characters.length > 0) {
+                console.log('Character Distributor UI: Retrieved characters using fallback methods');
+            }
+        }
+        
+        // Check if we have valid character data
+        if (!characters || !Array.isArray(characters) || characters.length === 0) {
+            console.warn('Character Distributor UI: Could not access SillyTavern characters');
+            return { excludedCharacters, characterFiles };
+        }
+        
+        console.log(`Character Distributor UI: Found ${characters.length} characters in SillyTavern`);
+        
+        // Process each character
+        for (const character of characters) {
+            // Skip characters without file information
+            if (!character.filename && !character.avatar) continue;
+            
+            const filename = character.filename || character.avatar;
+            
+            // Get character tags, ensuring we have an array
+            let characterTags = [];
+            
+            // Direct tag access from character object
+            if (character.tags) {
+                characterTags = Array.isArray(character.tags) ? character.tags : 
+                               (typeof character.tags === 'string' ? character.tags.split(',').map(t => t.trim()) : []);
+            }
+            
+            // If we have no tags yet, try fetching tags specifically
+            if (characterTags.length === 0 && typeof getTags === 'function') {
                 try {
-                    if (window.getTagsForCharacter) {
-                        charTags = window.getTagsForCharacter(char.name) || [];
-                    } else if (window.SillyTavern?.getTagsForCharacter) {
-                        charTags = window.SillyTavern.getTagsForCharacter(char.name) || [];
-                    } else if (window.Tags?.getTagsForCharacter) {
-                        charTags = window.Tags.getTagsForCharacter(char.name) || [];
+                    // Try to get tags using the native getTags function if available
+                    const tags = getTags(character.avatar || character.filename);
+                    if (tags && Array.isArray(tags)) {
+                        characterTags = tags;
                     }
                 } catch (tagError) {
-                    console.warn(`Character Distributor UI: Error getting tags for ${char.name}:`, tagError);
+                    console.warn(`Character Distributor UI: Error getting tags for ${filename}:`, tagError);
                 }
-                
-                return {
-                    ...char,
-                    tags: charTags
-                };
-            });
-        }
-    }
-    
-    // Final fallback - try to get at least basic info from the DOM if all else fails
-    if (!characterData || characterData.length === 0) {
-        console.log('Character Distributor UI: All methods failed, trying to extract from DOM...');
-        
-        // Try to get character list from character select menu in UI
-        const charElements = document.querySelectorAll('#rm_print_characters_block .character_select');
-        
-        if (charElements && charElements.length > 0) {
-            characterData = Array.from(charElements).map(element => {
-                const name = element.getAttribute('title') || element.innerText;
-                const filename = element.getAttribute('data-filename') || '';
-                
-                return {
-                    name: name,
-                    avatar_url: filename,
-                    filename: filename,
-                    tags: [] // No tags available from DOM
-                };
-            });
+            }
             
-            console.log(`Character Distributor UI: Extracted ${characterData.length} characters from DOM`);
-        }
-    }
-    
-    // If we still don't have character data, give up
-    if (!characterData || characterData.length === 0) {
-        console.error('Character Distributor UI: Failed to retrieve character data using all available methods');
-        return [];
-    }
-    
-    // Normalize character data structure
-    const normalizedCharacters = characterData.map(char => {
-        // Make sure all characters have at least these fields
-        return {
-            name: char.name || char.char_name || 'Unknown Character',
-            avatar_url: char.avatar_url || char.filename || char.img || '',
-            filename: char.filename || char.avatar_url || char.img || '',
-            tags: Array.isArray(char.tags) ? char.tags : 
-                  (typeof char.tags === 'string' ? char.tags.split(',').map(tag => tag.trim()) : [])
-        };
-    });
-    
-    console.log(`Character Distributor UI: Normalized ${normalizedCharacters.length} characters`);
-    
-    // Filter characters based on excluded tags
-    if (!excludeTags || excludeTags.length === 0) {
-        return normalizedCharacters;
-    }
-    
-    // If we have exclude tags, filter them out
-    const filteredCharacters = normalizedCharacters.filter(char => {
-        // If character has no tags, include it
-        if (!char.tags || char.tags.length === 0) {
-            return true;
-        }
-        
-        // Check if character has any excluded tags
-        for (const tag of char.tags) {
-            if (excludeTags.includes(tag)) {
-                console.log(`Character Distributor UI: Excluding character ${char.name} due to tag: ${tag}`);
-                
-                // Add excluded_by_tag property for UI feedback
-                char.excluded_by_tag = tag;
-                return false;
+            // Check if this character has any excluded tags
+            if (characterTags.some(tag => excludeTags.includes(tag))) {
+                console.log(`Character Distributor UI: Excluding character with excluded tag: ${filename}`);
+                excludedCharacters.push(filename);
+            } else {
+                characterFiles.push(filename);
             }
         }
         
-        return true;
-    });
+        console.log(`Character Distributor UI: Found ${excludedCharacters.length} characters with excluded tags`);
+        console.log(`Character Distributor UI: Found ${characterFiles.length} characters without excluded tags`);
+    } catch (error) {
+        console.error('Character Distributor UI: Error filtering characters by tags', error);
+    }
     
-    console.log(`Character Distributor UI: Filtered to ${filteredCharacters.length} characters after tag exclusion`);
-    return filteredCharacters;
+    return { excludedCharacters, characterFiles };
 }
 
 // Trigger synchronization with Dropbox
 async function triggerSync() {
+    // Update UI to show sync is running
+    $('#sync_status').text('Sync running...');
+    
+    // Get excluded tags from settings
+    const excludeTags = $('#exclude_tags').val().split(',').map(tag => tag.trim()).filter(tag => tag);
+    console.log('Character Distributor UI: Excluded tags:', excludeTags);
+    
     try {
-        console.log('Character Distributor UI: Starting sync...');
+        // Filter characters based on SillyTavern tags
+        const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
         
-        // Update UI to show sync is in progress
-        updateSyncStatus({ running: true, message: 'Syncing characters...' });
+        // Get proper request headers and add Content-Type
+        const headers = getRequestHeaders();
+        headers['Content-Type'] = 'application/json';
         
-        // First check server status to make sure it's online
-        const serverStatus = await checkServerStatus();
-        if (!serverStatus.running) {
-            console.error('Character Distributor UI: Server plugin not running');
-            updateSyncStatus({ 
-                running: false, 
-                success: false, 
-                message: 'Server plugin not running. Please check server logs.' 
-            });
-            return;
-        }
-        
-        // Then check authentication status
-        const authStatus = await refreshAuthStatus();
-        if (!authStatus.authenticated) {
-            console.error('Character Distributor UI: Not authenticated with Dropbox');
-            updateSyncStatus({ 
-                running: false, 
-                success: false, 
-                message: 'Not authenticated with Dropbox. Please authenticate first.' 
-            });
-            return;
-        }
-        
-        // Get current exclude tags from settings
-        const excludeTags = settings.excludeTags || [];
-        
-        // Get filtered characters
-        const filteredCharacters = await filterCharactersByTags(excludeTags);
-        
-        // Extract the allowedCharacterFiles list (those not excluded by tags)
-        const allowedCharacterFiles = filteredCharacters
-            .filter(char => !char.excluded_by_tag)
-            .map(char => char.filename || char.avatar_url)
-            .filter(filename => !!filename); // Remove any undefined or empty filenames
-            
-        // Extract excluded character files for logging
-        const excludedCharacterFiles = filteredCharacters
-            .filter(char => char.excluded_by_tag)
-            .map(char => char.filename || char.avatar_url)
-            .filter(filename => !!filename);
-        
-        console.log(`Character Distributor UI: Found ${allowedCharacterFiles.length} characters to sync`);
-        console.log(`Character Distributor UI: Excluding ${excludedCharacterFiles.length} characters with excluded tags`);
-        
-        // Call sync endpoint
-        const response = await fetch('/api/plugins/character-distributor/sync', {
+        // Now send the list of allowed characters to the server
+        fetch('/api/plugins/character-distributor/sync', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...getRequestHeaders()
-            },
+            headers: headers,
             body: JSON.stringify({
-                allowedCharacterFiles,
-                excludeTags
+                allowedCharacterFiles: characterFiles, // Send list of files that are allowed
+                excludeTags: excludeTags // Also send excluded tags for secondary filtering
             })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update UI with sync results including removed files
+            updateSyncStatus({
+                ...data,
+                message: data.success ? 
+                    `Synced ${data.count} characters` + (data.removed ? `, removed ${data.removed}` : '') : 
+                    'Sync failed'
+            });
+        })
+        .catch(error => {
+            console.error('Character Distributor UI: Error during sync', error);
+            updateSyncStatus({ success: false, message: 'Sync failed. Check server logs.' });
         });
-        
-        if (response.ok) {
-            const result = await response.json();
-            console.log('Character Distributor UI: Sync result:', result);
-            
-            // Update UI with sync result
-            updateSyncStatus({
-                running: false,
-                success: result.success,
-                message: result.message || (result.success ? 'Sync completed successfully' : 'Sync failed'),
-                count: result.count || 0,
-                removed: result.removed || 0,
-                total: result.total || 0
-            });
-            
-            // Show toast with sync result
-            if (result.success) {
-                toastr.success(`Synced ${result.count} characters${result.removed ? `, removed ${result.removed}` : ''}`, 'Character Distributor');
-            } else {
-                toastr.error(`Sync failed: ${result.message || 'Unknown error'}`, 'Character Distributor');
-            }
-        } else {
-            console.error('Character Distributor UI: Sync request failed', response.status);
-            
-            // Try to get error details from response
-            let errorMessage = 'Unknown error';
-            try {
-                const errorData = await response.json();
-                errorMessage = errorData.message || errorData.error || 'Unknown error';
-            } catch (e) {
-                errorMessage = `HTTP error ${response.status}`;
-            }
-            
-            updateSyncStatus({
-                running: false,
-                success: false,
-                message: `Sync failed: ${errorMessage}`
-            });
-            
-            toastr.error(`Sync failed: ${errorMessage}`, 'Character Distributor');
-        }
     } catch (error) {
-        console.error('Character Distributor UI: Error during sync', error);
-        
-        updateSyncStatus({
-            running: false,
-            success: false,
-            message: `Sync error: ${error.message || 'Unknown error'}`
-        });
-        
-        toastr.error(`Sync error: ${error.message || 'Unknown error'}`, 'Character Distributor');
+        console.error('Character Distributor UI: Error during sync preparation', error);
+        updateSyncStatus({ success: false, message: 'Error preparing sync. Check console logs.' });
     }
 }
 
@@ -888,84 +742,96 @@ function copyShareLink() {
     }
 }
 
-// Load character list for sharing
+// Load character list for sharing using SillyTavern's APIs
 function loadCharacterList() {
-    console.log('Character Distributor UI: Loading character list for sharing');
+    console.log('Character Distributor UI: Loading character list...');
     
-    // Clear current options
-    $('#share_character').empty();
+    let characters = null;
     
-    // Add a placeholder option
-    $('#share_character').append($('<option>', {
-        value: '',
-        text: '-- Select a character --',
-        disabled: true,
-        selected: true
-    }));
+    // Try to get characters from getCharacters() function
+    try {
+        if (typeof getCharacters === 'function') {
+            characters = getCharacters();
+            console.log('Character Distributor UI: Retrieved characters using getCharacters()');
+        }
+    } catch (e) {
+        console.warn('Character Distributor UI: Error using getCharacters():', e);
+    }
     
-    // Get excluded tags from settings
-    const excludeTags = settings.excludeTags || [];
-    
-    // Use our improved character retrieval function
-    filterCharactersByTags(excludeTags)
-        .then(characters => {
-            // Sort characters by name
-            characters.sort((a, b) => {
-                return (a.name || '').localeCompare(b.name || '');
-            });
-            
-            // Add each character as an option
-            characters.forEach(character => {
-                // Skip characters with excluded tags
-                if (character.excluded_by_tag) {
-                    return;
-                }
-                
-                // Get filename to use as value
-                const filename = character.filename || character.avatar_url || '';
-                if (!filename) {
-                    return; // Skip characters without a filename
-                }
-                
-                // Create option element
-                const option = $('<option>', {
-                    value: filename,
-                    text: character.name || 'Unnamed Character',
-                    'data-avatar': character.avatar_url || filename,
-                    'data-tags': character.tags ? character.tags.join(',') : ''
-                });
-                
-                // Add to select element
-                $('#share_character').append(option);
-            });
-            
-            console.log(`Character Distributor UI: Loaded ${$('#share_character option').length - 1} characters for sharing`);
-            
-            // Enable the select if we have characters
-            $('#share_character').prop('disabled', $('#share_character option').length <= 1);
-            
-            // If no characters were found, show message
-            if ($('#share_character option').length <= 1) {
-                $('#share_character').append($('<option>', {
-                    value: '',
-                    text: 'No characters available'
-                }));
-                
-                console.warn('Character Distributor UI: No characters available for sharing');
+    // If that fails, try the API
+    if (!characters || !Array.isArray(characters) || characters.length === 0) {
+        fetch('/api/characters/all', {
+            headers: getRequestHeaders()
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
             }
+            return response.json();
+        })
+        .then(data => {
+            populateCharacterDropdown(data);
         })
         .catch(error => {
-            console.error('Character Distributor UI: Error loading character list', error);
+            console.error('Character Distributor UI: Error loading characters from API', error);
             
-            // Show error message
-            $('#share_character').append($('<option>', {
-                value: '',
-                text: 'Error loading characters'
-            }));
-            
-            // Disable the select
-            $('#share_character').prop('disabled', true);
+            // Last resort - try window variables
+            const fallbackCharacters = window.characters || 
+                (window.charactersList) || 
+                Object.values(window.chat_metadata?.characters || {});
+                
+            if (fallbackCharacters && Array.isArray(fallbackCharacters) && fallbackCharacters.length > 0) {
+                console.log('Character Distributor UI: Using fallback character data');
+                populateCharacterDropdown(fallbackCharacters);
+            } else {
+                // Add a placeholder option when no characters are available
+                const selectElement = $('#share_character');
+                selectElement.empty();
+                selectElement.append($('<option></option>')
+                    .attr('value', '')
+                    .text('No characters available'));
+            }
         });
+    } else {
+        // Use the characters we got from getCharacters()
+        populateCharacterDropdown(characters);
+    }
+}
+
+// Populate character dropdown from data
+function populateCharacterDropdown(characters) {
+    const selectElement = $('#share_character');
+    selectElement.empty();
+    
+    if (!Array.isArray(characters) || characters.length === 0) {
+        console.log('Character Distributor UI: No characters found');
+        selectElement.append($('<option></option>')
+            .attr('value', '')
+            .text('No characters available'));
+        return;
+    }
+    
+    console.log(`Character Distributor UI: Loaded ${characters.length} characters`);
+    
+    // Sort characters by name
+    characters.sort((a, b) => {
+        const nameA = a.name || 'Unknown';
+        const nameB = b.name || 'Unknown';
+        return nameA.localeCompare(nameB);
+    });
+    
+    // Now populate the dropdown
+    characters.forEach(character => {
+        // Add defensive checks for expected properties
+        const name = character.name || 'Unknown Character';
+        const avatarUrl = character.filename || character.avatar || '';
+        
+        if (avatarUrl) {
+            selectElement.append($('<option></option>')
+                .attr('value', avatarUrl)
+                .text(name));
+        }
+    });
 }
 
 // Initialize extension when jQuery is ready
