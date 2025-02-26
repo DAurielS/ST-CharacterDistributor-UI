@@ -558,22 +558,59 @@ function copyShareLink() {
 
 // Load character list for sharing
 function loadCharacterList() {
+    console.log('Character Distributor UI: Loading character list...');
     fetch('/api/plugins/character-distributor/characters', {
         headers: getRequestHeaders()
     })
-    .then(response => response.json())
-    .then(characters => {
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Server responded with status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
         const selectElement = $('#share_character');
         selectElement.empty();
         
-        characters.forEach(character => {
+        // Make sure we have an array
+        if (!Array.isArray(data)) {
+            console.warn('Character Distributor UI: Received non-array response:', data);
+            // Add a placeholder option when no characters are available
             selectElement.append($('<option></option>')
-                .attr('value', character.avatar_url)
-                .text(character.name));
+                .attr('value', '')
+                .text('No characters available'));
+            return;
+        }
+        
+        if (data.length === 0) {
+            console.log('Character Distributor UI: No characters found');
+            selectElement.append($('<option></option>')
+                .attr('value', '')
+                .text('No characters available'));
+            return;
+        }
+        
+        console.log(`Character Distributor UI: Loaded ${data.length} characters`);
+        
+        // Now we can safely use forEach
+        data.forEach(character => {
+            // Add defensive checks for expected properties
+            const name = character.name || 'Unknown Character';
+            const avatarUrl = character.avatar_url || character.avatar || '';
+            
+            selectElement.append($('<option></option>')
+                .attr('value', avatarUrl)
+                .text(name));
         });
     })
     .catch(error => {
         console.error('Character Distributor UI: Error loading characters', error);
+        // Add a placeholder option when loading fails
+        const selectElement = $('#share_character');
+        selectElement.empty();
+        selectElement.append($('<option></option>')
+            .attr('value', '')
+            .text('Error loading characters'));
     });
 }
 
