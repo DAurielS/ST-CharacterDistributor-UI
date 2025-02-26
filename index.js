@@ -210,7 +210,7 @@ async function initializeUI() {
         console.log('Character Distributor UI: Setting up event listeners for SillyTavern events');
         
         // Listen for character list updates
-        eventSource.addEventListener(event_types.CHARACTERS_LOADED, function() {
+        eventSource.on(event_types.CHARACTERS_LOADED, function() {
             console.log('Character Distributor UI: Characters updated, refreshing list');
             loadCharacterList();
         });
@@ -225,7 +225,7 @@ async function initializeUI() {
         for (const eventType of relevantEvents) {
             if (eventType) {
                 console.log(`Character Distributor UI: Adding listener for ${eventType}`);
-                eventSource.addEventListener(eventType, function() {
+                eventSource.on(eventType, function() {
                     console.log(`Character Distributor UI: Event ${eventType} triggered, refreshing character list`);
                     loadCharacterList();
                 });
