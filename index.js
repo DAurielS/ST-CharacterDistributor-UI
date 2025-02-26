@@ -207,11 +207,32 @@ async function initializeUI() {
     
     // Listen for SillyTavern character changes
     if (eventSource && event_types) {
+        console.log('Character Distributor UI: Setting up event listeners for SillyTavern events');
+        
         // Listen for character list updates
         eventSource.addEventListener(event_types.CHARACTERS_LOADED, function() {
             console.log('Character Distributor UI: Characters updated, refreshing list');
             loadCharacterList();
         });
+        
+        // Also listen for other relevant events that might change characters
+        const relevantEvents = [
+            event_types.CHARACTER_EDITED,
+            event_types.CHARACTER_DELETED,
+            event_types.CHARACTER_PAGE_LOADED
+        ];
+        
+        for (const eventType of relevantEvents) {
+            if (eventType) {
+                console.log(`Character Distributor UI: Adding listener for ${eventType}`);
+                eventSource.addEventListener(eventType, function() {
+                    console.log(`Character Distributor UI: Event ${eventType} triggered, refreshing character list`);
+                    loadCharacterList();
+                });
+            }
+        }
+    } else {
+        console.warn('Character Distributor UI: SillyTavern eventSource or event_types not available');
     }
     
     // Load the character list for the share dropdown
@@ -380,19 +401,26 @@ async function filterCharactersByTags(excludeTags) {
         // Try to use the proper SillyTavern function to get characters
         let characters = null;
         
-        // Approach 1: Direct use of getCharacters() function
+        // Approach 1: Instead of direct call, use it as an async function
         try {
             if (typeof getCharacters === 'function') {
-                characters = getCharacters();
-                console.log('Character Distributor UI: Retrieved characters using getCharacters()');
-                // Add detailed logging about the result
-                console.log('Character Distributor UI: getCharacters() returned type:', typeof characters);
-                console.log('Character Distributor UI: Is array?', Array.isArray(characters));
-                console.log('Character Distributor UI: Length:', characters ? (Array.isArray(characters) ? characters.length : '(not an array)') : '(null)');
-                if (characters && Array.isArray(characters) && characters.length > 0) {
-                    // Log first character structure
-                    console.log('Character Distributor UI: First character structure:', JSON.stringify(characters[0]));
+                console.log('Character Distributor UI: Calling getCharacters() as async function');
+                // We need to await the function call since getCharacters is async
+                await getCharacters();
+                // The characters should now be populated in the global characters array
+                if (window.characters && Array.isArray(window.characters)) {
+                    characters = window.characters;
+                    console.log('Character Distributor UI: Retrieved characters from global array after getCharacters() call');
+                    console.log('Character Distributor UI: Characters array length:', characters.length);
+                    if (characters.length > 0) {
+                        // Log first character structure
+                        console.log('Character Distributor UI: First character structure:', JSON.stringify(characters[0]));
+                    }
+                } else {
+                    console.log('Character Distributor UI: Global characters array not populated after getCharacters() call');
                 }
+            } else {
+                console.log('Character Distributor UI: getCharacters function not available');
             }
         } catch (e) {
             console.warn('Character Distributor UI: Error using getCharacters():', e);
@@ -405,17 +433,21 @@ async function filterCharactersByTags(excludeTags) {
             };
         }
         
-        // Approach 2: Try to get characters from API only if getCharacters() failed or returned empty
+        // Approach 2: Try to get characters from API directly using POST like the native function
         if ((!characters || !Array.isArray(characters) || characters.length === 0) && !window.characterDistributor.apiUnavailable) {
-            console.log('Character Distributor UI: getCharacters() failed or returned empty, trying API endpoint');
+            console.log('Character Distributor UI: No valid characters from getCharacters(), trying direct API call');
             try {
                 const response = await fetch('/api/characters/all', {
-                    headers: getRequestHeaders()
+                    method: 'POST', // Using POST as in script.js
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({ '': '' }) // Important: This empty object is required
                 });
                 
                 if (response.ok) {
                     characters = await response.json();
                     console.log('Character Distributor UI: Retrieved characters using API');
+                    console.log('Character Distributor UI: API returned array?', Array.isArray(characters));
+                    console.log('Character Distributor UI: API returned length:', characters.length);
                 } else {
                     console.warn('Character Distributor UI: API returned status', response.status);
                     if (response.status === 404) {
@@ -943,73 +975,87 @@ function copyShareLink() {
 }
 
 // Load character list for sharing using SillyTavern's APIs
-function loadCharacterList() {
+async function loadCharacterList() {
     console.log('Character Distributor UI: Loading character list...');
     
     let characters = null;
     
-    // Try to get characters from getCharacters() function
+    // Approach 1: Call getCharacters as async function
     try {
         if (typeof getCharacters === 'function') {
-            characters = getCharacters();
-            console.log('Character Distributor UI: Retrieved characters using getCharacters()');
-            console.log('Character Distributor UI: getCharacters() returned type:', typeof characters);
-            console.log('Character Distributor UI: Is array?', Array.isArray(characters));
-            console.log('Character Distributor UI: Length:', characters ? (Array.isArray(characters) ? characters.length : '(not an array)') : '(null)');
+            console.log('Character Distributor UI: Calling getCharacters() as async function');
+            // We need to await the function call since getCharacters is async
+            await getCharacters();
+            // The characters should now be populated in the global characters array
+            if (window.characters && Array.isArray(window.characters)) {
+                characters = window.characters;
+                console.log('Character Distributor UI: Retrieved characters from global array after getCharacters() call');
+                console.log('Character Distributor UI: Characters array length:', characters.length);
+            } else {
+                console.log('Character Distributor UI: Global characters array not populated after getCharacters() call');
+            }
+        } else {
+            console.log('Character Distributor UI: getCharacters function not available');
         }
     } catch (e) {
         console.warn('Character Distributor UI: Error using getCharacters():', e);
     }
     
-    // If that fails, try the API, but only if we haven't previously noted it as unavailable
+    // Add tracking marker if needed
+    if (!window.characterDistributor) {
+        window.characterDistributor = {
+            apiUnavailable: false
+        };
+    }
+    
+    // Approach 2: Try to get characters from API directly using POST
     if ((!characters || !Array.isArray(characters) || characters.length === 0) && !window.characterDistributor?.apiUnavailable) {
-        console.log('Character Distributor UI: No valid characters from getCharacters(), trying API');
+        console.log('Character Distributor UI: No valid characters from getCharacters(), trying direct API call');
         
-        fetch('/api/characters/all', {
-            headers: getRequestHeaders()
-        })
-        .then(response => {
+        try {
+            const response = await fetch('/api/characters/all', {
+                method: 'POST', // Use POST instead of GET
+                headers: getRequestHeaders(),
+                body: JSON.stringify({ '': '' }) // Important: This empty object is required
+            });
+            
             if (!response.ok) {
                 console.warn(`Character Distributor UI: API returned status: ${response.status}`);
                 
                 // If we get a 404, mark the API as unavailable to avoid future attempts
                 if (response.status === 404) {
                     console.log('Character Distributor UI: API endpoint not available, marking as unavailable for future requests');
-                    if (!window.characterDistributor) {
-                        window.characterDistributor = {};
-                    }
                     window.characterDistributor.apiUnavailable = true;
                 }
                 
                 throw new Error(`Server responded with status: ${response.status}`);
             }
-            return response.json();
-        })
-        .then(data => {
-            if (Array.isArray(data) && data.length > 0) {
-                console.log(`Character Distributor UI: Retrieved ${data.length} characters from API`);
-                populateCharacterDropdown(data);
+            
+            characters = await response.json();
+            console.log(`Character Distributor UI: Retrieved ${characters.length} characters from API`);
+            
+            if (Array.isArray(characters) && characters.length > 0) {
+                populateCharacterDropdown(characters);
+                return; // Exit early if successful
             } else {
                 console.warn('Character Distributor UI: API returned empty or invalid character data');
-                useFallbackCharacters();
+                // Continue to fallback
             }
-        })
-        .catch(error => {
+        } catch (error) {
             console.error('Character Distributor UI: Error loading characters from API', error);
-            useFallbackCharacters();
-        });
-    } else {
-        if (characters && Array.isArray(characters) && characters.length > 0) {
-            // Use the characters we got from getCharacters()
-            console.log(`Character Distributor UI: Using ${characters.length} characters from getCharacters()`);
-            populateCharacterDropdown(characters);
-        } else if (window.characterDistributor?.apiUnavailable) {
-            console.log('Character Distributor UI: API previously marked as unavailable, using fallback methods');
-            useFallbackCharacters();
-        } else {
-            console.warn('Character Distributor UI: No valid character data from primary method');
-            useFallbackCharacters();
+            // Continue to fallback
         }
+    } else if (window.characterDistributor?.apiUnavailable) {
+        console.log('Character Distributor UI: API previously marked as unavailable, skipping API call');
+    }
+    
+    // Use the characters we got from getCharacters() if available
+    if (characters && Array.isArray(characters) && characters.length > 0) {
+        console.log(`Character Distributor UI: Using ${characters.length} characters from getCharacters()`);
+        populateCharacterDropdown(characters);
+    } else {
+        // Otherwise, fallback to window variables
+        useFallbackCharacters();
     }
 }
 
