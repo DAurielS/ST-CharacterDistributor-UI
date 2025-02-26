@@ -205,31 +205,116 @@ async function initializeUI() {
     window.addEventListener('message', handleDropboxAuthCallback);
 }
 
+// Function to get SillyTavern's character tags
+function getCharacterTags(characterName) {
+    // Access SillyTavern's character object
+    if (window.characters && characterName) {
+        const character = window.characters.find(char => 
+            char.name === characterName || char.avatar === characterName);
+        
+        if (character && character.tags) {
+            return character.tags;
+        }
+    }
+    
+    // Alternative method - check the character selector data
+    if (window.chat_metadata && window.chat_metadata.characters) {
+        const character = Object.values(window.chat_metadata.characters)
+            .find(char => char.name === characterName || char.avatar === characterName);
+        
+        if (character && character.tags) {
+            return character.tags;
+        }
+    }
+    
+    return [];
+}
+
+// Filter characters based on SillyTavern tags
+async function filterCharactersByTags(excludeTags) {
+    const excludedCharacters = [];
+    const characterFiles = [];
+    
+    // Get all character cards from SillyTavern's global characters array
+    try {
+        // Try multiple possible ways to access the character list
+        const characters = window.characters || 
+                        (window.getCharacters && window.getCharacters()) || 
+                        (window.charactersList) || 
+                        Object.values(window.chat_metadata?.characters || {});
+        
+        if (!characters || characters.length === 0) {
+            console.warn('Character Distributor UI: Could not access SillyTavern characters');
+            return { excludedCharacters, characterFiles };
+        }
+        
+        console.log(`Character Distributor UI: Found ${characters.length} characters in SillyTavern`);
+        
+        characters.forEach(character => {
+            // Skip characters without file information
+            if (!character.filename && !character.avatar) return;
+            
+            const filename = character.filename || character.avatar;
+            const characterTags = character.tags || [];
+            
+            // Check if this character has any excluded tags
+            if (characterTags.some(tag => excludeTags.includes(tag))) {
+                console.log(`Character Distributor UI: Excluding character with excluded tag: ${filename}`);
+                excludedCharacters.push(filename);
+            } else {
+                characterFiles.push(filename);
+            }
+        });
+    } catch (error) {
+        console.error('Character Distributor UI: Error filtering characters by tags', error);
+    }
+    
+    console.log(`Character Distributor UI: Found ${excludedCharacters.length} characters with excluded tags`);
+    console.log(`Character Distributor UI: Found ${characterFiles.length} characters without excluded tags`);
+    return { excludedCharacters, characterFiles };
+}
+
 // Trigger synchronization with Dropbox
 async function triggerSync() {
-    console.log('Character Distributor UI: Triggering sync...');
-    $('#force_sync').prop('disabled', true);
+    // Update UI to show sync is running
+    $('#sync_status').text('Sync running...');
+    
+    // Get excluded tags from settings
+    const excludeTags = $('#exclude_tags').val().split(',').map(tag => tag.trim()).filter(tag => tag);
+    console.log('Character Distributor UI: Excluded tags:', excludeTags);
     
     try {
-        const response = await fetch('/api/plugins/character-distributor/sync', {
-            method: 'POST',
-            headers: getRequestHeaders()
-        });
+        // Filter characters based on SillyTavern tags
+        const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
         
-        if (response.ok) {
-            const result = await response.json();
-            console.log('Character Distributor UI: Sync result', result);
-            updateSyncStatus(result);
-            toastr.success('Synchronization completed');
-        } else {
-            console.error('Character Distributor UI: Sync failed');
-            toastr.error('Synchronization failed');
-        }
+        // Now send the list of allowed characters to the server
+        fetch('/api/character-distributor/sync', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                allowedCharacterFiles: characterFiles, // Send list of files that are allowed
+                excludeTags: excludeTags // Also send excluded tags for secondary filtering
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update UI with sync results including removed files
+            updateSyncStatus({
+                ...data,
+                message: data.success ? 
+                    `Synced ${data.count} characters` + (data.removed ? `, removed ${data.removed}` : '') : 
+                    'Sync failed'
+            });
+        })
+        .catch(error => {
+            console.error('Character Distributor UI: Error during sync', error);
+            updateSyncStatus({ success: false, message: 'Sync failed. Check server logs.' });
+        });
     } catch (error) {
-        console.error('Character Distributor UI: Error during sync', error);
-        toastr.error('Error during synchronization');
-    } finally {
-        $('#force_sync').prop('disabled', false);
+        console.error('Character Distributor UI: Error during sync preparation', error);
+        updateSyncStatus({ success: false, message: 'Error preparing sync. Check console logs.' });
     }
 }
 
@@ -294,15 +379,25 @@ function updateServerStatus(status) {
 // Update sync status in UI
 function updateSyncStatus(result) {
     const syncStatusElement = $('#sync_status');
+    const lastSyncElement = $('#last_sync');
+    const sharedCharactersElement = $('#shared_characters');
     
     if (result.success) {
-        syncStatusElement.text(`Sync completed: ${result.message || 'Success'}`);
-        syncStatusElement.addClass('success').removeClass('error');
-        $('#last_sync').text(`Last sync: ${new Date().toLocaleString()}`);
-        $('#shared_characters').text(`Shared characters: ${result.sharedCharacters || 0}`);
+        syncStatusElement.html(`<span style="color: green;">✓ ${result.message || 'Sync completed successfully'}</span>`);
+        lastSyncElement.text(`Last sync: ${new Date().toLocaleString()}`);
+        
+        // If we have a count of shared characters
+        if (result.total !== undefined || result.count !== undefined) {
+            const total = result.total || result.count || 0;
+            sharedCharactersElement.text(`Shared characters: ${total}`);
+            
+            // Add details about removed characters if available
+            if (result.removed !== undefined && result.removed > 0) {
+                sharedCharactersElement.append(`<br><span style="color: orange;">(${result.removed} characters removed due to tag exclusion)</span>`);
+            }
+        }
     } else {
-        syncStatusElement.text(`Sync failed: ${result.error || 'Unknown error'}`);
-        syncStatusElement.addClass('error').removeClass('success');
+        syncStatusElement.html(`<span style="color: red;">✗ ${result.message || 'Sync failed'}</span>`);
     }
 }
 
