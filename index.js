@@ -3,7 +3,7 @@
 
 // Import SillyTavern functions
 import { extension_settings, getContext, loadExtensionSettings } from "../../../extensions.js";
-import { saveSettingsDebounced } from "../../../../script.js";
+import { saveSettingsDebounced, getRequestHeaders } from "../../../../script.js";
 
 // Extension metadata
 const MODULE_NAME = 'ST-CharacterDistributor-UI';
@@ -58,9 +58,7 @@ async function sendSettingsToServer() {
     try {
         const response = await fetch('/api/plugins/character-distributor/settings', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: getRequestHeaders(),
             body: JSON.stringify(extension_settings[MODULE_NAME])
         });
         
@@ -108,7 +106,8 @@ async function triggerSync() {
     
     try {
         const response = await fetch('/api/plugins/character-distributor/sync', {
-            method: 'POST'
+            method: 'POST',
+            headers: getRequestHeaders()
         });
         
         if (response.ok) {
@@ -133,7 +132,9 @@ async function checkServerStatus() {
     console.log('Character Distributor UI: Checking server status...');
     
     try {
-        const response = await fetch('/api/plugins/character-distributor/status');
+        const response = await fetch('/api/plugins/character-distributor/status', {
+            headers: getRequestHeaders()
+        });
         
         if (response.ok) {
             const status = await response.json();
@@ -206,9 +207,7 @@ function handleDropboxAuthCallback(event) {
             // Send token to server plugin
             fetch('/api/plugins/character-distributor/auth', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: getRequestHeaders(),
                 body: JSON.stringify({ accessToken, tokenType, expiresIn })
             })
             .then(response => {
@@ -237,7 +236,8 @@ function handleDropboxAuthCallback(event) {
 // Logout from Dropbox
 function logoutFromDropbox() {
     fetch('/api/plugins/character-distributor/logout', {
-        method: 'POST'
+        method: 'POST',
+        headers: getRequestHeaders()
     })
     .then(response => {
         if (response.ok) {
@@ -263,7 +263,9 @@ function generateShareLink() {
         return;
     }
     
-    fetch(`/api/plugins/character-distributor/share/${characterId}`)
+    fetch(`/api/plugins/character-distributor/share/${characterId}`, {
+        headers: getRequestHeaders()
+    })
     .then(response => response.json())
     .then(data => {
         if (data.shareLink) {
@@ -293,7 +295,9 @@ function copyShareLink() {
 
 // Load character list for sharing
 function loadCharacterList() {
-    fetch('/api/characters/all')
+    fetch('/api/characters/list', {
+        headers: getRequestHeaders()
+    })
     .then(response => response.json())
     .then(characters => {
         const selectElement = $('#share_character');
