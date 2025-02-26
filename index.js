@@ -75,6 +75,43 @@ async function sendSettingsToServer() {
     }
 }
 
+// Add a function to manually check auth status from server
+async function refreshAuthStatus() {
+    console.log('Character Distributor UI: Manually refreshing auth status...');
+    $('#refresh_auth_status').prop('disabled', true);
+    
+    try {
+        const response = await fetch('/api/plugins/character-distributor/status', {
+            headers: getRequestHeaders()
+        });
+        
+        if (response.ok) {
+            const status = await response.json();
+            console.log('Auth status response:', status);
+            
+            if (status.authenticated) {
+                $('#auth_status').text('Authenticated');
+                $('#auth_status').addClass('success').removeClass('error');
+                toastr.success('Authentication status refreshed');
+            } else {
+                $('#auth_status').text('Not authenticated');
+                $('#auth_status').removeClass('success error');
+                toastr.info('Not authenticated with Dropbox');
+            }
+            
+            updateServerStatus(status);
+        } else {
+            console.error('Character Distributor UI: Auth status check failed');
+            toastr.error('Failed to check authentication status');
+        }
+    } catch (error) {
+        console.error('Character Distributor UI: Error checking auth status', error);
+        toastr.error('Error checking authentication status');
+    } finally {
+        $('#refresh_auth_status').prop('disabled', false);
+    }
+}
+
 // Initialize UI components and event handlers
 async function initializeUI() {
     // Load settings HTML
@@ -89,6 +126,7 @@ async function initializeUI() {
     $('#get_share_link').on('click', generateShareLink);
     $('#copy_link').on('click', copyShareLink);
     $('#submit_manual_token').on('click', submitManualToken);
+    $('#refresh_auth_status').on('click', refreshAuthStatus);
     
     // Load current settings
     loadSettings();
@@ -141,6 +179,16 @@ async function checkServerStatus() {
             const status = await response.json();
             console.log('Character Distributor UI: Server status', status);
             updateServerStatus(status);
+            
+            // Update the auth status display based on the response
+            if (status.hasOwnProperty('authenticated')) {
+                $('#auth_status').text(status.authenticated ? 'Authenticated' : 'Not authenticated');
+                if (status.authenticated) {
+                    $('#auth_status').addClass('success').removeClass('error');
+                } else {
+                    $('#auth_status').removeClass('success error');
+                }
+            }
         } else {
             console.error('Character Distributor UI: Server status check failed');
             updateServerStatus({ running: false });
@@ -160,6 +208,16 @@ function updateServerStatus(status) {
         serverStatusElement.addClass('success').removeClass('error');
         $('#last_sync').text(`Last sync: ${status.lastSync || 'Never'}`);
         $('#shared_characters').text(`Shared characters: ${status.sharedCharacters || 0}`);
+        
+        // Update auth status if available
+        if (status.hasOwnProperty('authenticated')) {
+            $('#auth_status').text(status.authenticated ? 'Authenticated' : 'Not authenticated');
+            if (status.authenticated) {
+                $('#auth_status').addClass('success').removeClass('error');
+            } else {
+                $('#auth_status').removeClass('success error');
+            }
+        }
     } else {
         serverStatusElement.text('Server plugin: Not running');
         serverStatusElement.addClass('error').removeClass('success');
@@ -232,6 +290,9 @@ function submitManualToken() {
             $('#auth_status').addClass('success').removeClass('error');
             $('#manual_access_token').val(''); // Clear the token field for security
             toastr.success('Successfully authenticated with Dropbox using manual token');
+            
+            // Refresh the status to confirm
+            setTimeout(refreshAuthStatus, 1000);
         } else {
             $('#auth_status').text('Authentication failed');
             $('#auth_status').addClass('error').removeClass('success');
@@ -263,6 +324,9 @@ function handleDropboxAuthCallback(event) {
                     $('#auth_status').text('Authenticated');
                     $('#auth_status').addClass('success').removeClass('error');
                     toastr.success('Successfully authenticated with Dropbox');
+                    
+                    // Refresh the status to confirm
+                    setTimeout(refreshAuthStatus, 1000);
                 } else {
                     $('#auth_status').text('Authentication failed');
                     $('#auth_status').addClass('error').removeClass('success');
@@ -372,8 +436,12 @@ jQuery(async () => {
     // Load character list
     loadCharacterList();
     
-    // Check for auth token in localStorage (from callback page)
-    checkLocalStorageForToken();
+    // Check for auth token in localStorage after a short delay to ensure everything is loaded
+    console.log('Setting up localStorage token check...');
+    setTimeout(() => {
+        console.log('Running delayed localStorage token check...');
+        checkLocalStorageForToken();
+    }, 2000);
     
     console.log('Character Distributor UI: Extension initialized');
 });
@@ -386,11 +454,17 @@ function checkLocalStorageForToken() {
     const expiresIn = localStorage.getItem('dropbox_expires_in');
     const timestamp = localStorage.getItem('dropbox_auth_timestamp');
     
+    console.log('Character Distributor UI: Checking localStorage for token...');
+    console.log('Token exists:', !!accessToken);
+    console.log('Timestamp exists:', !!timestamp);
+    
     // If we have a token and it's recent (within last 5 minutes)
     if (accessToken && timestamp) {
         const age = Date.now() - parseInt(timestamp, 10);
+        console.log('Token age (ms):', age);
+        
         if (age < 5 * 60 * 1000) { // 5 minutes
-            console.log('Character Distributor UI: Found auth token in localStorage');
+            console.log('Character Distributor UI: Found valid auth token in localStorage');
             
             // Send token to server plugin
             fetch('/api/plugins/character-distributor/auth', {
@@ -403,18 +477,33 @@ function checkLocalStorageForToken() {
                 })
             })
             .then(response => {
-                if (response.ok) {
-                    $('#auth_status').text('Authenticated');
-                    $('#auth_status').addClass('success').removeClass('error');
-                    toastr.success('Successfully authenticated with Dropbox using saved token');
-                } else {
-                    $('#auth_status').text('Authentication failed');
-                    $('#auth_status').addClass('error').removeClass('success');
-                    toastr.error('Failed to save Dropbox authentication');
-                }
-                
-                // Clear localStorage tokens after use
-                clearLocalStorageTokens();
+                console.log('Auth API response status:', response.status);
+                return response.text().then(text => {
+                    try {
+                        return text ? JSON.parse(text) : {};
+                    } catch (e) {
+                        console.error('Failed to parse response:', text);
+                        return {};
+                    }
+                }).then(data => {
+                    console.log('Auth API response data:', data);
+                    
+                    if (response.ok) {
+                        $('#auth_status').text('Authenticated');
+                        $('#auth_status').addClass('success').removeClass('error');
+                        toastr.success('Successfully authenticated with Dropbox using saved token');
+                        
+                        // Refresh the status to confirm
+                        setTimeout(refreshAuthStatus, 1000);
+                    } else {
+                        $('#auth_status').text('Authentication failed');
+                        $('#auth_status').addClass('error').removeClass('success');
+                        toastr.error('Failed to save Dropbox authentication: ' + (data.error || response.statusText));
+                    }
+                    
+                    // Clear localStorage tokens after use
+                    clearLocalStorageTokens();
+                });
             })
             .catch(error => {
                 console.error('Character Distributor UI: Error saving auth token from localStorage', error);
@@ -423,8 +512,11 @@ function checkLocalStorageForToken() {
             });
         } else {
             // Token is too old, clear it
+            console.log('Token too old, clearing it');
             clearLocalStorageTokens();
         }
+    } else {
+        console.log('No valid token found in localStorage');
     }
 }
 

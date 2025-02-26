@@ -53,6 +53,12 @@
             border-radius: 5px;
             display: none;
         }
+        .guidance-box {
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -61,6 +67,7 @@
         <div id="status">Processing authentication...</div>
         <p>This window will automatically close in <span id="countdown">10</span> seconds.</p>
         <div id="token-info"></div>
+        <div id="guidance"></div>
     </div>
 
     <script>
@@ -100,6 +107,17 @@
                             statusElement.textContent = 'Authentication successful! Token saved. You can now close this window and return to SillyTavern.';
                             statusElement.className = 'success';
                             
+                            // Show clear guidance
+                            document.getElementById('guidance').innerHTML = `
+                                <div class="guidance-box">
+                                    <p><strong>✅ Authentication Complete!</strong></p>
+                                    <p>The token has been saved to your browser storage.</p>
+                                    <p>Please close this window and return to SillyTavern.</p>
+                                    <p>Check the "Dropbox Authentication" panel in SillyTavern - it should update to "Authenticated" status.</p>
+                                    <p>If the status doesn't update automatically, click the "Check Auth Status" button.</p>
+                                </div>
+                            `;
+                            
                             // Attempt to close this window and focus the opener
                             setTimeout(() => {
                                 try {
@@ -114,8 +132,23 @@
                             console.error('Cannot use localStorage:', storageError);
                             
                             // window.opener is null - likely opened in a new tab rather than a popup
-                            statusElement.textContent = 'Authentication successful, but cannot communicate with SillyTavern. Please copy the token below and manually paste it in the SillyTavern UI.';
+                            statusElement.textContent = 'Authentication successful, but cannot automatically send the token to SillyTavern';
                             statusElement.className = 'success';
+                            
+                            // Display token info for manual copying with improved guidance
+                            document.getElementById('guidance').innerHTML = `
+                                <div class="guidance-box">
+                                    <h3>Manual Token Copy Required</h3>
+                                    <p>Please follow these steps:</p>
+                                    <ol>
+                                        <li>Copy the access token below using the "Copy Token" button</li>
+                                        <li>Return to SillyTavern</li>
+                                        <li>In the "Dropbox Authentication" section, find the "Manual Token" textarea</li>
+                                        <li>Paste the token in the textarea</li>
+                                        <li>Click the "Submit Token" button</li>
+                                    </ol>
+                                </div>
+                            `;
                             
                             // Display token info for manual copying
                             tokenInfoElement.style.display = 'block';
