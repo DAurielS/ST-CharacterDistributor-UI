@@ -221,16 +221,48 @@ async function initializeUI() {
 // Get character tags using SillyTavern's native tag system
 function getCharacterTags(characterIdentifier) {
     try {
+        if (!characterIdentifier) {
+            console.warn('Character Distributor UI: Called getCharacterTags with empty identifier');
+            return [];
+        }
+        
+        console.log(`Character Distributor UI: Getting tags for character: ${typeof characterIdentifier === 'object' ? 
+            (characterIdentifier.name || characterIdentifier.avatar || 'Object without name') : 
+            characterIdentifier}`);
+
         // First try using the native tag system with getTagKeyForEntity and getTagsList
         if (typeof getTagKeyForEntity === 'function' && typeof getTagsList === 'function') {
-            const tagKey = getTagKeyForEntity(characterIdentifier);
-            if (tagKey) {
-                const tags = getTagsList(tagKey);
-                if (tags && Array.isArray(tags)) {
-                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags for ${tagKey} using native tag system`);
-                    return tags;
+            try {
+                let tagKey = null;
+                // For string identifiers (like a name or filename)
+                if (typeof characterIdentifier === 'string') {
+                    tagKey = getTagKeyForEntity(characterIdentifier);
+                } 
+                // For object identifiers (like a character object)
+                else if (typeof characterIdentifier === 'object' && characterIdentifier !== null) {
+                    // Try various properties that might work as identifiers
+                    tagKey = getTagKeyForEntity(characterIdentifier.name || 
+                                               characterIdentifier.avatar || 
+                                               characterIdentifier.filename);
                 }
+                
+                if (tagKey) {
+                    console.log(`Character Distributor UI: Found tag key: ${tagKey}`);
+                    const tags = getTagsList(tagKey);
+                    if (tags && Array.isArray(tags)) {
+                        console.log(`Character Distributor UI: Retrieved ${tags.length} tags for ${tagKey} using native tag system`);
+                        return tags;
+                    } else {
+                        console.log(`Character Distributor UI: getTagsList returned invalid result for ${tagKey}: ${typeof tags}`);
+                    }
+                } else {
+                    console.log('Character Distributor UI: getTagKeyForEntity returned null/undefined');
+                }
+            } catch (tagError) {
+                console.warn('Character Distributor UI: Error using native tag system:', tagError);
             }
+        } else {
+            console.log('Character Distributor UI: Native tag functions not available');
         }
         
         // Fallback to direct character object access
@@ -250,72 +282,84 @@ function getCharacterTags(characterIdentifier) {
             
             // If we're dealing with a character object but no name/identifier provided,
             // set the characterIdentifier to the name or avatar for fallback methods
-            characterIdentifier = characterIdentifier.name || characterIdentifier.avatar;
+            characterIdentifier = characterIdentifier.name || characterIdentifier.avatar || characterIdentifier.filename;
         }
         
         // Fallback approaches from the original implementation
         // 1. Try getCharacters()
-        const characters = getCharacters();
-        
-        if (characters && Array.isArray(characters)) {
-            const character = characters.find(char => 
-                char.name === characterIdentifier || 
-                char.avatar === characterIdentifier || 
-                (char.filename && char.filename === characterIdentifier));
+        try {
+            const characters = getCharacters();
             
-            if (character && character.tags) {
-                const tags = Array.isArray(character.tags) ? 
-                    character.tags : 
-                    (typeof character.tags === 'string' ? 
-                        character.tags.split(',').map(t => t.trim()) : 
-                        []);
+            if (characters && Array.isArray(characters)) {
+                const character = characters.find(char => 
+                    char.name === characterIdentifier || 
+                    char.avatar === characterIdentifier || 
+                    (char.filename && char.filename === characterIdentifier));
                 
-                if (tags.length > 0) {
-                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags via getCharacters()`);
-                    return tags;
+                if (character && character.tags) {
+                    const tags = Array.isArray(character.tags) ? 
+                        character.tags : 
+                        (typeof character.tags === 'string' ? 
+                            character.tags.split(',').map(t => t.trim()) : 
+                            []);
+                    
+                    if (tags.length > 0) {
+                        console.log(`Character Distributor UI: Retrieved ${tags.length} tags via getCharacters()`);
+                        return tags;
+                    }
                 }
             }
+        } catch (charError) {
+            console.warn('Character Distributor UI: Error accessing characters via getCharacters():', charError);
         }
         
         // 2. Try context data
-        const context = getContext();
-        if (context && context.characters) {
-            const character = Object.values(context.characters).find(char => 
-                char.name === characterIdentifier || 
-                char.avatar === characterIdentifier);
-            
-            if (character && character.tags) {
-                const tags = Array.isArray(character.tags) ? 
-                    character.tags : 
-                    (typeof character.tags === 'string' ? 
-                        character.tags.split(',').map(t => t.trim()) : 
-                        []);
+        try {
+            const context = getContext();
+            if (context && context.characters) {
+                const character = Object.values(context.characters).find(char => 
+                    char.name === characterIdentifier || 
+                    char.avatar === characterIdentifier);
                 
-                if (tags.length > 0) {
-                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags via context data`);
-                    return tags;
+                if (character && character.tags) {
+                    const tags = Array.isArray(character.tags) ? 
+                        character.tags : 
+                        (typeof character.tags === 'string' ? 
+                            character.tags.split(',').map(t => t.trim()) : 
+                            []);
+                    
+                    if (tags.length > 0) {
+                        console.log(`Character Distributor UI: Retrieved ${tags.length} tags via context data`);
+                        return tags;
+                    }
                 }
             }
+        } catch (contextError) {
+            console.warn('Character Distributor UI: Error accessing context data:', contextError);
         }
         
         // 3. Try window.characters
-        if (window.characters && Array.isArray(window.characters)) {
-            const character = window.characters.find(char => 
-                char.name === characterIdentifier || 
-                char.avatar === characterIdentifier);
-            
-            if (character && character.tags) {
-                const tags = Array.isArray(character.tags) ? 
-                    character.tags : 
-                    (typeof character.tags === 'string' ? 
-                        character.tags.split(',').map(t => t.trim()) : 
-                        []);
+        try {
+            if (window.characters && Array.isArray(window.characters)) {
+                const character = window.characters.find(char => 
+                    char.name === characterIdentifier || 
+                    char.avatar === characterIdentifier);
                 
-                if (tags.length > 0) {
-                    console.log(`Character Distributor UI: Retrieved ${tags.length} tags via window.characters`);
-                    return tags;
+                if (character && character.tags) {
+                    const tags = Array.isArray(character.tags) ? 
+                        character.tags : 
+                        (typeof character.tags === 'string' ? 
+                            character.tags.split(',').map(t => t.trim()) : 
+                            []);
+                    
+                    if (tags.length > 0) {
+                        console.log(`Character Distributor UI: Retrieved ${tags.length} tags via window.characters`);
+                        return tags;
+                    }
                 }
             }
+        } catch (windowError) {
+            console.warn('Character Distributor UI: Error accessing window.characters:', windowError);
         }
         
         console.log(`Character Distributor UI: No tags found for character: ${characterIdentifier}`);
@@ -341,13 +385,29 @@ async function filterCharactersByTags(excludeTags) {
             if (typeof getCharacters === 'function') {
                 characters = getCharacters();
                 console.log('Character Distributor UI: Retrieved characters using getCharacters()');
+                // Add detailed logging about the result
+                console.log('Character Distributor UI: getCharacters() returned type:', typeof characters);
+                console.log('Character Distributor UI: Is array?', Array.isArray(characters));
+                console.log('Character Distributor UI: Length:', characters ? (Array.isArray(characters) ? characters.length : '(not an array)') : '(null)');
+                if (characters && Array.isArray(characters) && characters.length > 0) {
+                    // Log first character structure
+                    console.log('Character Distributor UI: First character structure:', JSON.stringify(characters[0]));
+                }
             }
         } catch (e) {
             console.warn('Character Distributor UI: Error using getCharacters():', e);
         }
         
-        // Approach 2: Try to get characters from API
-        if (!characters || !Array.isArray(characters) || characters.length === 0) {
+        // Add a flag to track if we've previously seen a 404 on the API endpoint
+        if (!window.characterDistributor) {
+            window.characterDistributor = {
+                apiUnavailable: false
+            };
+        }
+        
+        // Approach 2: Try to get characters from API only if getCharacters() failed or returned empty
+        if ((!characters || !Array.isArray(characters) || characters.length === 0) && !window.characterDistributor.apiUnavailable) {
+            console.log('Character Distributor UI: getCharacters() failed or returned empty, trying API endpoint');
             try {
                 const response = await fetch('/api/characters/all', {
                     headers: getRequestHeaders()
@@ -356,14 +416,27 @@ async function filterCharactersByTags(excludeTags) {
                 if (response.ok) {
                     characters = await response.json();
                     console.log('Character Distributor UI: Retrieved characters using API');
+                } else {
+                    console.warn('Character Distributor UI: API returned status', response.status);
+                    if (response.status === 404) {
+                        console.log('Character Distributor UI: API endpoint not available, marking as unavailable for future requests');
+                        window.characterDistributor.apiUnavailable = true;
+                    }
                 }
             } catch (e) {
                 console.warn('Character Distributor UI: Error fetching characters from API:', e);
+            }
+        } else {
+            if (window.characterDistributor.apiUnavailable) {
+                console.log('Character Distributor UI: Skipping API call as endpoint was previously unavailable');
+            } else {
+                console.log('Character Distributor UI: Using characters from getCharacters(), skipping API call');
             }
         }
         
         // Approach 3: Fallback to window variables
         if (!characters || !Array.isArray(characters) || characters.length === 0) {
+            console.log('Character Distributor UI: No characters from primary methods, trying window variables');
             characters = window.characters || 
                         (window.getCharacters && window.getCharacters()) || 
                         (window.charactersList) || 
@@ -371,6 +444,11 @@ async function filterCharactersByTags(excludeTags) {
             
             if (characters && Array.isArray(characters) && characters.length > 0) {
                 console.log('Character Distributor UI: Retrieved characters using fallback methods');
+                console.log('Character Distributor UI: Characters source:', 
+                    characters === window.characters ? 'window.characters' :
+                    characters === window.getCharacters?.() ? 'window.getCharacters()' :
+                    characters === window.charactersList ? 'window.charactersList' :
+                    'window.chat_metadata.characters');
             }
         }
         
@@ -385,7 +463,10 @@ async function filterCharactersByTags(excludeTags) {
         // Process each character
         for (const character of characters) {
             // Skip characters without file information
-            if (!character.filename && !character.avatar) continue;
+            if (!character.filename && !character.avatar) {
+                console.log('Character Distributor UI: Skipping character without filename or avatar', character.name || 'Unnamed');
+                continue;
+            }
             
             const filename = character.filename || character.avatar;
             
@@ -461,31 +542,74 @@ async function checkServerStatus() {
     console.log('Character Distributor UI: Checking server status...');
     
     try {
-        const response = await fetch('/api/plugins/character-distributor/status', {
-            headers: getRequestHeaders()
-        });
+        // Add a timeout to the fetch to prevent hanging if server is not responding
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
         
-        if (response.ok) {
-            const status = await response.json();
-            console.log('Character Distributor UI: Server status', status);
-            updateServerStatus(status);
+        try {
+            const response = await fetch('/api/plugins/character-distributor/status', {
+                headers: getRequestHeaders(),
+                signal: controller.signal
+            });
             
-            // Update the auth status display based on the response
-            if (status.hasOwnProperty('authenticated')) {
-                $('#auth_status').text(status.authenticated ? 'Authenticated' : 'Not authenticated');
-                if (status.authenticated) {
-                    $('#auth_status').addClass('success').removeClass('error');
-                } else {
-                    $('#auth_status').removeClass('success error');
+            // Clear the timeout since the request completed
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+                const status = await response.json();
+                console.log('Character Distributor UI: Server status', status);
+                
+                // Add more detailed logging
+                console.log('Character Distributor UI: Server running:', status.running);
+                console.log('Character Distributor UI: Authentication status:', status.authenticated);
+                console.log('Character Distributor UI: Last sync:', status.lastSync);
+                console.log('Character Distributor UI: Shared characters:', status.sharedCharacters);
+                
+                updateServerStatus(status);
+                
+                // Update the auth status display based on the response
+                if (status.hasOwnProperty('authenticated')) {
+                    $('#auth_status').text(status.authenticated ? 'Authenticated' : 'Not authenticated');
+                    if (status.authenticated) {
+                        $('#auth_status').addClass('success').removeClass('error');
+                    } else {
+                        $('#auth_status').removeClass('success error');
+                    }
                 }
+                
+                return status; // Return the status for potential further processing
+            } else {
+                console.error(`Character Distributor UI: Server status check failed with status ${response.status}`);
+                
+                // Try to get more details from the response
+                try {
+                    const errorText = await response.text();
+                    console.error('Character Distributor UI: Error details:', errorText);
+                } catch (textError) {
+                    console.error('Character Distributor UI: Could not read error details');
+                }
+                
+                updateServerStatus({ running: false });
+                return { running: false };
             }
-        } else {
-            console.error('Character Distributor UI: Server status check failed');
-            updateServerStatus({ running: false });
+        } catch (fetchError) {
+            // Make sure to clear the timeout to prevent memory leaks
+            clearTimeout(timeoutId);
+            
+            // Handle different error types
+            if (fetchError.name === 'AbortError') {
+                console.error('Character Distributor UI: Server status check timed out after 5 seconds');
+                updateServerStatus({ running: false, timedOut: true });
+                return { running: false, timedOut: true };
+            } else {
+                throw fetchError; // Re-throw for the outer catch
+            }
         }
     } catch (error) {
-        console.error('Character Distributor UI: Error checking server status', error);
-        updateServerStatus({ running: false });
+        console.error('Character Distributor UI: Error checking server status:', error.message);
+        console.error(error);
+        updateServerStatus({ running: false, error: error.message });
+        return { running: false, error: error.message };
     }
 }
 
@@ -509,8 +633,37 @@ function updateServerStatus(status) {
             }
         }
     } else {
-        serverStatusElement.text('Server plugin: Not running');
+        let statusText = 'Server plugin: Not running';
+        
+        // Add more details if available
+        if (status.timedOut) {
+            statusText = 'Server plugin: Not responding (timeout)';
+        } else if (status.error) {
+            statusText = `Server plugin: Error (${status.error})`;
+        }
+        
+        serverStatusElement.text(statusText);
         serverStatusElement.addClass('error').removeClass('success');
+        
+        // Clear other status displays
+        $('#last_sync').text('Last sync: N/A');
+        $('#shared_characters').text('Shared characters: 0');
+        $('#auth_status').text('Authentication status unknown');
+        $('#auth_status').removeClass('success error');
+        
+        // Show a diagnostic helper message if this is likely a first-time setup
+        if (!localStorage.getItem('character_distributor_shown_setup_help')) {
+            setTimeout(() => {
+                toastr.info(
+                    'If this is your first time using Character Distributor, make sure you have installed and activated the server plugin.<br><br>' +
+                    'The server plugin must be installed separately from the UI extension.<br><br>' +
+                    'Check the README.md file for installation instructions.',
+                    'Server Plugin Not Detected',
+                    { timeOut: 15000, extendedTimeOut: 5000, closeButton: true, tapToDismiss: true }
+                );
+                localStorage.setItem('character_distributor_shown_setup_help', 'true');
+            }, 2000);
+        }
     }
 }
 
@@ -800,48 +953,86 @@ function loadCharacterList() {
         if (typeof getCharacters === 'function') {
             characters = getCharacters();
             console.log('Character Distributor UI: Retrieved characters using getCharacters()');
+            console.log('Character Distributor UI: getCharacters() returned type:', typeof characters);
+            console.log('Character Distributor UI: Is array?', Array.isArray(characters));
+            console.log('Character Distributor UI: Length:', characters ? (Array.isArray(characters) ? characters.length : '(not an array)') : '(null)');
         }
     } catch (e) {
         console.warn('Character Distributor UI: Error using getCharacters():', e);
     }
     
-    // If that fails, try the API
-    if (!characters || !Array.isArray(characters) || characters.length === 0) {
+    // If that fails, try the API, but only if we haven't previously noted it as unavailable
+    if ((!characters || !Array.isArray(characters) || characters.length === 0) && !window.characterDistributor?.apiUnavailable) {
+        console.log('Character Distributor UI: No valid characters from getCharacters(), trying API');
+        
         fetch('/api/characters/all', {
             headers: getRequestHeaders()
         })
         .then(response => {
             if (!response.ok) {
+                console.warn(`Character Distributor UI: API returned status: ${response.status}`);
+                
+                // If we get a 404, mark the API as unavailable to avoid future attempts
+                if (response.status === 404) {
+                    console.log('Character Distributor UI: API endpoint not available, marking as unavailable for future requests');
+                    if (!window.characterDistributor) {
+                        window.characterDistributor = {};
+                    }
+                    window.characterDistributor.apiUnavailable = true;
+                }
+                
                 throw new Error(`Server responded with status: ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
-            populateCharacterDropdown(data);
+            if (Array.isArray(data) && data.length > 0) {
+                console.log(`Character Distributor UI: Retrieved ${data.length} characters from API`);
+                populateCharacterDropdown(data);
+            } else {
+                console.warn('Character Distributor UI: API returned empty or invalid character data');
+                useFallbackCharacters();
+            }
         })
         .catch(error => {
             console.error('Character Distributor UI: Error loading characters from API', error);
-            
-            // Last resort - try window variables
-            const fallbackCharacters = window.characters || 
-                (window.charactersList) || 
-                Object.values(window.chat_metadata?.characters || {});
-                
-            if (fallbackCharacters && Array.isArray(fallbackCharacters) && fallbackCharacters.length > 0) {
-                console.log('Character Distributor UI: Using fallback character data');
-                populateCharacterDropdown(fallbackCharacters);
-            } else {
-                // Add a placeholder option when no characters are available
-                const selectElement = $('#share_character');
-                selectElement.empty();
-                selectElement.append($('<option></option>')
-                    .attr('value', '')
-                    .text('No characters available'));
-            }
+            useFallbackCharacters();
         });
     } else {
-        // Use the characters we got from getCharacters()
-        populateCharacterDropdown(characters);
+        if (characters && Array.isArray(characters) && characters.length > 0) {
+            // Use the characters we got from getCharacters()
+            console.log(`Character Distributor UI: Using ${characters.length} characters from getCharacters()`);
+            populateCharacterDropdown(characters);
+        } else if (window.characterDistributor?.apiUnavailable) {
+            console.log('Character Distributor UI: API previously marked as unavailable, using fallback methods');
+            useFallbackCharacters();
+        } else {
+            console.warn('Character Distributor UI: No valid character data from primary method');
+            useFallbackCharacters();
+        }
+    }
+}
+
+// Helper function to use fallback character sources
+function useFallbackCharacters() {
+    console.log('Character Distributor UI: Attempting to use fallback character sources');
+    
+    // Try window variables
+    const fallbackCharacters = window.characters || 
+        (window.charactersList) || 
+        Object.values(window.chat_metadata?.characters || {});
+        
+    if (fallbackCharacters && Array.isArray(fallbackCharacters) && fallbackCharacters.length > 0) {
+        console.log(`Character Distributor UI: Found ${fallbackCharacters.length} characters using fallback data`);
+        populateCharacterDropdown(fallbackCharacters);
+    } else {
+        console.warn('Character Distributor UI: No characters available from any source');
+        // Add a placeholder option when no characters are available
+        const selectElement = $('#share_character');
+        selectElement.empty();
+        selectElement.append($('<option></option>')
+            .attr('value', '')
+            .text('No characters available'));
     }
 }
 
