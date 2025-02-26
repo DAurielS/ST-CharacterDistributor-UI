@@ -127,6 +127,7 @@ async function initializeUI() {
     $('#copy_link').on('click', copyShareLink);
     $('#submit_manual_token').on('click', submitManualToken);
     $('#refresh_auth_status').on('click', refreshAuthStatus);
+    $('#check_diagnostics').on('click', checkDiagnostics);
     
     // Load current settings
     loadSettings();
@@ -540,4 +541,44 @@ styleElement.textContent = `
     color: #ff0000;
 }
 `;
-document.head.appendChild(styleElement); 
+document.head.appendChild(styleElement);
+
+// Check plugin diagnostics
+async function checkDiagnostics() {
+    console.log('Character Distributor UI: Checking diagnostics...');
+    $('#check_diagnostics').prop('disabled', true);
+    
+    try {
+        const response = await fetch('/api/plugins/character-distributor/debug', {
+            headers: getRequestHeaders()
+        });
+        
+        if (response.ok) {
+            const diagnosticInfo = await response.json();
+            console.log('Character Distributor UI: Diagnostics', diagnosticInfo);
+            
+            // Format diagnostic info as a message
+            let message = '<h4>Character Distributor Diagnostics</h4>';
+            message += '<pre style="text-align: left; background-color: #1a1a1a; padding: 10px; max-height: 400px; overflow-y: auto;">';
+            message += JSON.stringify(diagnosticInfo, null, 2);
+            message += '</pre>';
+            
+            // Display in custom toastr
+            toastr.info(message, 'Diagnostics', { 
+                timeOut: 0,
+                extendedTimeOut: 0,
+                closeButton: true,
+                tapToDismiss: false,
+                escapeHtml: false
+            });
+        } else {
+            console.error('Character Distributor UI: Failed to get diagnostics');
+            toastr.error('Failed to get diagnostics information');
+        }
+    } catch (error) {
+        console.error('Character Distributor UI: Error checking diagnostics', error);
+        toastr.error('Error checking diagnostics');
+    } finally {
+        $('#check_diagnostics').prop('disabled', false);
+    }
+} 
