@@ -288,7 +288,7 @@ async function triggerSync() {
         const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
         
         // Now send the list of allowed characters to the server
-        fetch('/api/character-distributor/sync', {
+        fetch('/api/plugins/character-distributor/sync', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
