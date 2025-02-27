@@ -1094,6 +1094,7 @@ async function authenticateWithDropbox() {
         // Poll for authorization code in URL
         let pollCount = 0;
         const maxPolls = 240; // 2 minutes at 500ms intervals
+        let windowWasClosed = false;
         
         const checkAuthInterval = setInterval(async () => {
             pollCount++;
@@ -1108,41 +1109,46 @@ async function authenticateWithDropbox() {
             
             // Check if the window is still open
             if (authWindow.closed) {
-                console.log('Character Distributor UI: Auth window was closed by user after', pollCount * 500, 'ms');
-                clearInterval(checkAuthInterval);
-                
-                // Check if we already got a success message (via postMessage)
-                if ($('#auth_status').text() !== 'Authentication in progress...') {
-                    console.log('Character Distributor UI: Auth status was already updated:', $('#auth_status').text());
-                    return;
+                if (!windowWasClosed) {
+                    console.log('Character Distributor UI: Auth window was closed by user after', pollCount * 500, 'ms');
+                    windowWasClosed = true;
+                    
+                    // Check if we already got a success message (via postMessage)
+                    if ($('#auth_status').text() !== 'Authentication in progress...') {
+                        console.log('Character Distributor UI: Auth status was already updated:', $('#auth_status').text());
+                        clearInterval(checkAuthInterval);
+                        return;
+                    }
+                    
+                    // Check localStorage for a token that might have been saved
+                    if (localStorage.getItem('dropbox_auth_token')) {
+                        console.log('Character Distributor UI: Found token in localStorage after window closed');
+                        const token = localStorage.getItem('dropbox_auth_token');
+                        const tokenType = localStorage.getItem('dropbox_token_type') || 'bearer';
+                        const expiresIn = localStorage.getItem('dropbox_expires_in') || '14400';
+                        
+                        // Use the token from localStorage
+                        authData = {
+                            accessToken: token,
+                            refreshToken: localStorage.getItem('dropbox_refresh_token'),
+                            expiresIn: parseInt(expiresIn),
+                            tokenType: tokenType
+                        };
+                        
+                        // Send token to server
+                        clearInterval(checkAuthInterval);
+                        await sendTokenToServer();
+                        
+                        // Clean up localStorage
+                        clearLocalStorageTokens();
+                        return;
+                    }
+                    
+                    // If we get here, the window was closed without authentication
+                    clearInterval(checkAuthInterval);
+                    toastr.warning('Authentication window was closed', 'Authentication Incomplete');
+                    $('#auth_status').text('Authentication cancelled').removeClass('success error');
                 }
-                
-                // Check localStorage for a token that might have been saved
-                if (localStorage.getItem('dropbox_auth_token')) {
-                    console.log('Character Distributor UI: Found token in localStorage after window closed');
-                    const token = localStorage.getItem('dropbox_auth_token');
-                    const tokenType = localStorage.getItem('dropbox_token_type') || 'bearer';
-                    const expiresIn = localStorage.getItem('dropbox_expires_in') || '14400';
-                    
-                    // Use the token from localStorage
-                    authData = {
-                        accessToken: token,
-                        refreshToken: localStorage.getItem('dropbox_refresh_token'),
-                        expiresIn: parseInt(expiresIn),
-                        tokenType: tokenType
-                    };
-                    
-                    // Send token to server
-                    await sendTokenToServer();
-                    
-                    // Clean up localStorage
-                    clearLocalStorageTokens();
-                    return;
-                }
-                
-                // If we get here, the window was closed without authentication
-                toastr.warning('Authentication window was closed', 'Authentication Incomplete');
-                $('#auth_status').text('Authentication cancelled').removeClass('success error');
                 return;
             }
             
@@ -1152,7 +1158,7 @@ async function authenticateWithDropbox() {
                 
                 // Log every 10th poll attempt
                 if (pollCount % 10 === 0) {
-                    console.log('Character Distributor UI: Poll attempt', pollCount, 'checking auth window');
+                    console.log('Character Distributor UI: Poll attempt', pollCount, 'checking auth window URL');
                 }
                 
                 if (currentUrl.startsWith(redirectUri)) {
@@ -1178,7 +1184,8 @@ async function authenticateWithDropbox() {
                     }
                 }
             } catch (pollError) {
-                // Only log CORS errors occasionally to avoid flooding the console
+                // This is often a CORS error while accessing cross-origin window properties
+                // Only log occasionally to avoid flooding the console
                 if (pollCount % 20 === 0) {
                     console.warn('Character Distributor UI: Cannot access auth window properties (likely CORS) - continuing to poll');
                 }
@@ -1921,4 +1928,70 @@ function storeAuthToken(accessToken, tokenType, expiresIn, refreshToken) {
         console.error('Character Distributor UI: Error storing auth token in localStorage:', error);
         return false;
     }
-} 
+}
+
+// Handle the OAuth callback message from the popup window
+function handleDropboxAuthCallback(event) {
+    console.log('Character Distributor UI: Received postMessage event');
+    
+    // Validate message source and data
+    if (!event.data || typeof event.data !== 'object' || event.data.source !== 'dropbox-auth') {
+        console.log('Character Distributor UI: Ignoring unrelated message event', event.data?.source || 'no source');
+        return;
+    }
+    
+    console.log('Character Distributor UI: Processing Dropbox auth callback message');
+    
+    try {
+        // Check for error first
+        if (event.data.error) {
+            console.error('Character Distributor UI: Received error from auth window:', event.data.error);
+            $('#auth_status').text(`Authentication failed: ${event.data.error}`).removeClass('success').addClass('error');
+            toastr.error(event.data.error, 'Authentication Failed');
+            return;
+        }
+        
+        // Extract token data from the message
+        const { accessToken, tokenType, expiresIn, refreshToken } = event.data;
+        
+        if (!accessToken) {
+            console.error('Character Distributor UI: No access token in callback message');
+            $('#auth_status').text('Authentication failed: No token received').removeClass('success').addClass('error');
+            toastr.error('No access token received from Dropbox', 'Authentication Failed');
+            return;
+        }
+        
+        console.log('Character Distributor UI: Received access token from callback');
+        console.log('Character Distributor UI: Token length:', accessToken.length);
+        console.log('Character Distributor UI: Token type:', tokenType || 'bearer');
+        console.log('Character Distributor UI: Refresh token present:', !!refreshToken);
+        
+        // Store the token in authData
+        authData = {
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresIn: parseInt(expiresIn || '14400'),
+            tokenType: tokenType || 'bearer'
+        };
+        
+        // Update UI
+        $('#auth_status').text('Processing token from callback...');
+        
+        // Send the token to the server
+        sendTokenToServer().then(success => {
+            if (success) {
+                console.log('Character Distributor UI: Successfully authenticated with token from callback');
+            } else {
+                console.error('Character Distributor UI: Failed to authenticate with token from callback');
+            }
+        }).catch(error => {
+            console.error('Character Distributor UI: Error processing callback token:', error);
+            $('#auth_status').text('Authentication failed').removeClass('success').addClass('error');
+            toastr.error('Error processing authentication token', 'Authentication Failed');
+        });
+    } catch (error) {
+        console.error('Character Distributor UI: Error processing auth callback:', error);
+        $('#auth_status').text('Authentication callback error').removeClass('success').addClass('error');
+        toastr.error('Error processing authentication callback', 'Authentication Failed');
+    }
+}
