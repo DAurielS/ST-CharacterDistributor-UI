@@ -34,18 +34,61 @@ let authData = {
 
 // Initialize extension settings if needed
 function loadSettings() {
-    extension_settings[MODULE_NAME] = extension_settings[MODULE_NAME] || {};
+    console.log('Character Distributor UI: Loading settings');
+    
+    // Make sure the module settings object exists
+    if (!extension_settings[MODULE_NAME]) {
+        console.log('Character Distributor UI: Creating empty settings object');
+        extension_settings[MODULE_NAME] = {};
+    }
+    
+    console.log('Character Distributor UI: Current settings keys:', Object.keys(extension_settings[MODULE_NAME]));
+    
+    // Check if settings are empty, apply defaults if needed
     if (Object.keys(extension_settings[MODULE_NAME]).length === 0) {
+        console.log('Character Distributor UI: Applying default settings');
         Object.assign(extension_settings[MODULE_NAME], defaultSettings);
         saveSettingsDebounced();
     }
     
+    // Log current settings for debugging
+    console.log('Character Distributor UI: App Key exists:', !!extension_settings[MODULE_NAME].dropboxAppKey);
+    console.log('Character Distributor UI: App Secret exists:', !!extension_settings[MODULE_NAME].dropboxAppSecret);
+    console.log('Character Distributor UI: Auto sync:', extension_settings[MODULE_NAME].autoSync);
+    console.log('Character Distributor UI: Sync interval:', extension_settings[MODULE_NAME].syncInterval);
+    
+    if (extension_settings[MODULE_NAME].dropboxAppKey) {
+        console.log('Character Distributor UI: App Key length:', extension_settings[MODULE_NAME].dropboxAppKey.length);
+    }
+    
+    if (extension_settings[MODULE_NAME].dropboxAppSecret) {
+        console.log('Character Distributor UI: App Secret length:', extension_settings[MODULE_NAME].dropboxAppSecret.length);
+    }
+    
     // Update UI with current settings
-    $('#dropbox_app_key').val(extension_settings[MODULE_NAME].dropboxAppKey || '');
-    $('#dropbox_app_secret').val(extension_settings[MODULE_NAME].dropboxAppSecret || '');
-    $('#auto_sync').prop('checked', extension_settings[MODULE_NAME].autoSync || false);
-    $('#sync_interval').val(extension_settings[MODULE_NAME].syncInterval / 60);
-    $('#exclude_tags').val(extension_settings[MODULE_NAME].excludeTags.join(', '));
+    try {
+        $('#dropbox_app_key').val(extension_settings[MODULE_NAME].dropboxAppKey || '');
+        $('#dropbox_app_secret').val(extension_settings[MODULE_NAME].dropboxAppSecret || '');
+        $('#auto_sync').prop('checked', extension_settings[MODULE_NAME].autoSync || false);
+        
+        // Handle sync interval calculation (convert from seconds to minutes for display)
+        const syncIntervalMinutes = extension_settings[MODULE_NAME].syncInterval
+            ? Math.floor(extension_settings[MODULE_NAME].syncInterval / 60)
+            : defaultSettings.syncInterval / 60;
+            
+        $('#sync_interval').val(syncIntervalMinutes);
+        
+        // Handle exclude tags (array to string)
+        const excludeTags = extension_settings[MODULE_NAME].excludeTags || [];
+        $('#exclude_tags').val(excludeTags.join(', '));
+        
+        console.log('Character Distributor UI: UI updated with settings');
+    } catch (error) {
+        console.error('Character Distributor UI: Error updating UI with settings:', error);
+    }
+    
+    // Check server status to update UI with auth status
+    checkServerStatus();
 }
 
 // Save settings from UI inputs
@@ -70,50 +113,127 @@ function saveSettings() {
 // Send settings to server plugin
 async function sendSettingsToServer() {
     try {
+        console.log('Character Distributor UI: Sending settings to server...');
+        
         // Create a clean copy of the settings to send
         const settingsToSend = JSON.parse(JSON.stringify(extension_settings[MODULE_NAME]));
         
-        // Log the settings we're about to send
-        console.log('Character Distributor UI: Sending settings to server:', JSON.stringify(settingsToSend));
-        console.log('Character Distributor UI: Settings type:', typeof settingsToSend);
+        // Log the settings we're about to send - sanitize by showing only key names and types for security
+        const sanitizedSettings = {};
+        for (const [key, value] of Object.entries(settingsToSend)) {
+            if (key.toLowerCase().includes('key') || key.toLowerCase().includes('secret')) {
+                sanitizedSettings[key] = value ? `[${typeof value}:${String(value).length} chars]` : 'empty';
+            } else {
+                sanitizedSettings[key] = value;
+            }
+        }
+        console.log('Character Distributor UI: Sending settings:', JSON.stringify(sanitizedSettings));
         
-        // Log the headers we're using
+        // Check if we have any settings to send
+        if (Object.keys(settingsToSend).length === 0) {
+            console.warn('Character Distributor UI: Settings object is empty');
+            toastr.warning('Settings object is empty', 'Warning');
+        }
+        
+        // Get request headers and explicitly set Content-Type
         const headers = getRequestHeaders();
-        console.log('Character Distributor UI: Request headers:', JSON.stringify(headers));
-        
-        // Add explicit Content-Type header to ensure proper parsing
         headers['Content-Type'] = 'application/json';
         
-        const response = await fetch('/api/plugins/character-distributor/settings', {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(settingsToSend)
-        });
-        
-        if (response.ok) {
-            console.log('Character Distributor UI: Settings sent to server plugin');
-            toastr.success('Settings saved and sent to server plugin');
-            
-            // Check if response has content
-            try {
-                const responseText = await response.text();
-                if (responseText) {
-                    console.log('Character Distributor UI: Server response:', responseText);
-                }
-            } catch (responseError) {
-                console.warn('Character Distributor UI: Could not parse server response', responseError);
+        // Log headers (but sanitize any auth-related headers)
+        const sanitizedHeaders = {...headers};
+        for (const [key, value] of Object.entries(sanitizedHeaders)) {
+            if (key.toLowerCase().includes('auth')) {
+                sanitizedHeaders[key] = '[REDACTED]';
             }
-        } else {
-            console.error('Character Distributor UI: Failed to send settings to server plugin, status:', response.status);
-            console.error('Character Distributor UI: Response text:', await response.text());
-            toastr.error('Failed to send settings to server plugin');
+        }
+        console.log('Character Distributor UI: Request headers:', JSON.stringify(sanitizedHeaders));
+        
+        // Make the API call with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+        
+        try {
+            const response = await fetch('/api/plugins/character-distributor/settings', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(settingsToSend),
+                signal: controller.signal
+            });
             
-            // Wait a moment then try the echo endpoint for diagnostics
-            setTimeout(testEchoEndpoint, 1000);
+            // Clear timeout since the request completed
+            clearTimeout(timeoutId);
+            
+            // Log response status
+            console.log('Character Distributor UI: Settings API response status:', response.status, response.statusText);
+            
+            if (response.ok) {
+                console.log('Character Distributor UI: Settings sent to server plugin successfully');
+                toastr.success('Settings saved and sent to server plugin');
+                
+                // Check if response has content
+                try {
+                    const responseText = await response.text();
+                    if (responseText) {
+                        try {
+                            const responseData = JSON.parse(responseText);
+                            console.log('Character Distributor UI: Server response:', responseData);
+                        } catch (jsonError) {
+                            console.log('Character Distributor UI: Server response (plain text):', responseText);
+                        }
+                    } else {
+                        console.log('Character Distributor UI: Server returned empty response');
+                    }
+                } catch (responseError) {
+                    console.warn('Character Distributor UI: Could not read server response', responseError);
+                }
+                
+                return true; // Return true to indicate success
+            } else {
+                let errorMessage = `Failed to send settings (Status: ${response.status})`;
+                
+                try {
+                    // Try to parse error response
+                    const errorText = await response.text();
+                    console.error('Character Distributor UI: Error response text:', errorText);
+                    
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMessage = errorData.error || errorMessage;
+                        console.error('Character Distributor UI: Error response data:', errorData);
+                    } catch (jsonError) {
+                        console.error('Character Distributor UI: Could not parse error response as JSON');
+                    }
+                } catch (textError) {
+                    console.error('Character Distributor UI: Could not read error response text', textError);
+                }
+                
+                console.error(`Character Distributor UI: Failed to send settings to server: ${errorMessage}`);
+                toastr.error(errorMessage, 'Settings Error');
+                
+                // Wait a moment then try the echo endpoint for diagnostics
+                setTimeout(testEchoEndpoint, 1000);
+                
+                return false; // Return false to indicate failure
+            }
+        } catch (fetchError) {
+            // Always clear the timeout to prevent memory leaks
+            clearTimeout(timeoutId);
+            
+            // Handle abort/timeout separately
+            if (fetchError.name === 'AbortError') {
+                console.error('Character Distributor UI: Request timed out after 10 seconds');
+                toastr.error('Request timed out. Server not responding.', 'Timeout Error');
+            } else {
+                console.error('Character Distributor UI: Fetch error:', fetchError.message);
+                toastr.error(`Network error: ${fetchError.message}`, 'Connection Error');
+            }
+            
+            throw fetchError; // Rethrow for outer try/catch
         }
     } catch (error) {
-        console.error('Character Distributor UI: Error sending settings to server plugin', error);
-        toastr.error('Error sending settings to server plugin');
+        console.error('Character Distributor UI: Error sending settings to server plugin:', error);
+        toastr.error('Error sending settings to server plugin: ' + (error.message || 'Unknown error'));
+        return false; // Return false to indicate failure
     }
 }
 
@@ -156,7 +276,10 @@ async function testEchoEndpoint() {
 
 // Add a function to manually check auth status from server
 async function refreshAuthStatus() {
-    console.log('Character Distributor UI: Manually refreshing auth status...');
+    console.log('Character Distributor UI: Refreshing authentication status');
+    
+    // Update UI to show operation in progress
+    $('#auth_status').text('Checking auth status...');
     $('#refresh_auth_status').prop('disabled', true);
     
     try {
@@ -188,6 +311,67 @@ async function refreshAuthStatus() {
         toastr.error('Error checking authentication status');
     } finally {
         $('#refresh_auth_status').prop('disabled', false);
+    }
+}
+
+// Handle manual token submission
+async function submitManualToken() {
+    console.log('Character Distributor UI: Processing manual token submission');
+    
+    // Get the token from the textarea
+    const accessToken = $('#manual_access_token').val().trim();
+    
+    if (!accessToken) {
+        toastr.error('Please enter an access token', 'Missing Token');
+        return;
+    }
+    
+    if (accessToken.length < 10) {
+        toastr.error('Token is too short to be valid', 'Invalid Token');
+        return;
+    }
+    
+    // Get app key from settings
+    const appKey = $('#dropbox_app_key').val();
+    const appSecret = $('#dropbox_app_secret').val();
+    
+    if (!appKey || !appSecret) {
+        toastr.error('App Key and Secret must be configured before submitting token', 'Configuration Error');
+        return;
+    }
+    
+    // Save the settings first
+    extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+    extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
+    saveSettingsDebounced();
+    await sendSettingsToServer();
+    
+    console.log('Character Distributor UI: Saved app key and secret to settings');
+    
+    // Update UI
+    $('#auth_status').text('Validating token...');
+    $('#submit_manual_token').prop('disabled', true);
+    
+    try {
+        // Store the token in authData
+        authData = {
+            accessToken: accessToken,
+            refreshToken: null,
+            expiresIn: 14400, // Default to 4 hours
+            tokenType: 'bearer'
+        };
+        
+        // Send the token to the server
+        await sendTokenToServer();
+        
+        // Clear the textarea
+        $('#manual_access_token').val('');
+    } catch (error) {
+        console.error('Character Distributor UI: Error processing manual token', error);
+        toastr.error('Error processing manual token');
+        $('#auth_status').text('Token validation failed').removeClass('success').addClass('error');
+    } finally {
+        $('#submit_manual_token').prop('disabled', false);
     }
 }
 
@@ -528,7 +712,7 @@ async function filterCharactersByTags(excludeTags) {
             console.log('Character Distributor UI: Making direct API call to get characters');
             try {
                 const response = await fetch('/api/characters/all', {
-                    method: 'POST', // Using POST as in script.js
+                    method: 'POST',
                     headers: getRequestHeaders(),
                     body: JSON.stringify({}) // Empty object is sufficient
                 });
@@ -852,6 +1036,7 @@ async function authenticateWithDropbox() {
         
         // Get app key from settings
         const appKey = $('#dropbox_app_key').val();
+        const appSecret = $('#dropbox_app_secret').val();
         
         if (!appKey) {
             toastr.error('App Key must be configured before authenticating', 'Authentication Error');
@@ -860,12 +1045,24 @@ async function authenticateWithDropbox() {
             return;
         }
         
+        if (!appSecret) {
+            toastr.error('App Secret must be configured before authenticating', 'Authentication Error');
+            console.error('Character Distributor UI: Missing Dropbox App Secret');
+            $('#auth_status').text('Not authenticated').removeClass('success').addClass('error');
+            return;
+        }
+        
         // Save the settings before continuing
         extension_settings[MODULE_NAME].dropboxAppKey = appKey;
-        extension_settings[MODULE_NAME].dropboxAppSecret = $('#dropbox_app_secret').val();
+        extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
         saveSettingsDebounced();
         
         console.log('Character Distributor UI: Saved app key and secret to settings');
+        console.log('Character Distributor UI: App Key length:', appKey.length);
+        console.log('Character Distributor UI: App Secret length:', appSecret.length);
+        
+        // Ensure settings are sent to server before proceeding
+        await sendSettingsToServer();
         
         // Generate a code verifier and challenge for PKCE (improved security over implicit flow)
         const codeVerifier = generateCodeVerifier();
@@ -873,30 +1070,94 @@ async function authenticateWithDropbox() {
         
         // Store code verifier in sessionStorage for later use
         sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
+        console.log('Character Distributor UI: Stored code verifier in sessionStorage');
         
         // Construct the authorization URL with code challenge
         const redirectUri = window.location.origin + '/scripts/extensions/third-party/ST-CharacterDistributor-UI/public/oauth_callback.html';
+        console.log('Character Distributor UI: Redirect URI:', redirectUri);
+        
         const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline`; // Request refresh token with offline access
+        console.log('Character Distributor UI: Authorization URL length:', authUrl.length);
         
         // Open the authorization URL in a new tab/window
         const authWindow = window.open(authUrl, '_blank', 'width=800,height=600');
         
+        if (!authWindow) {
+            console.error('Character Distributor UI: Failed to open auth window - popup blocked?');
+            toastr.error('Failed to open authentication window. Please allow popups for this site.', 'Authentication Error');
+            $('#auth_status').text('Authentication failed - popup blocked').removeClass('success').addClass('error');
+            return;
+        }
+        
+        console.log('Character Distributor UI: Opened auth window, waiting for response');
+        
         // Poll for authorization code in URL
+        let pollCount = 0;
+        const maxPolls = 240; // 2 minutes at 500ms intervals
+        
         const checkAuthInterval = setInterval(async () => {
-            try {
-                if (authWindow.closed) {
-                    clearInterval(checkAuthInterval);
-                    $('#auth_status').text('Authentication canceled').removeClass('success').addClass('error');
-                    console.log('Character Distributor UI: Auth window closed by user');
+            pollCount++;
+            
+            if (pollCount > maxPolls) {
+                console.error('Character Distributor UI: Auth timeout after waiting for', pollCount * 500, 'ms');
+                clearInterval(checkAuthInterval);
+                toastr.error('Authentication timed out after 2 minutes', 'Authentication Failed');
+                $('#auth_status').text('Authentication timed out').removeClass('success').addClass('error');
+                return;
+            }
+            
+            // Check if the window is still open
+            if (authWindow.closed) {
+                console.log('Character Distributor UI: Auth window was closed by user after', pollCount * 500, 'ms');
+                clearInterval(checkAuthInterval);
+                
+                // Check if we already got a success message (via postMessage)
+                if ($('#auth_status').text() !== 'Authentication in progress...') {
+                    console.log('Character Distributor UI: Auth status was already updated:', $('#auth_status').text());
                     return;
                 }
                 
-                // Check if the window location contains the authorization code
+                // Check localStorage for a token that might have been saved
+                if (localStorage.getItem('dropbox_auth_token')) {
+                    console.log('Character Distributor UI: Found token in localStorage after window closed');
+                    const token = localStorage.getItem('dropbox_auth_token');
+                    const tokenType = localStorage.getItem('dropbox_token_type') || 'bearer';
+                    const expiresIn = localStorage.getItem('dropbox_expires_in') || '14400';
+                    
+                    // Use the token from localStorage
+                    authData = {
+                        accessToken: token,
+                        refreshToken: localStorage.getItem('dropbox_refresh_token'),
+                        expiresIn: parseInt(expiresIn),
+                        tokenType: tokenType
+                    };
+                    
+                    // Send token to server
+                    await sendTokenToServer();
+                    
+                    // Clean up localStorage
+                    clearLocalStorageTokens();
+                    return;
+                }
+                
+                // If we get here, the window was closed without authentication
+                toastr.warning('Authentication window was closed', 'Authentication Incomplete');
+                $('#auth_status').text('Authentication cancelled').removeClass('success error');
+                return;
+            }
+            
+            try {
+                // Check if the auth window URL changed to the redirect URI
                 const currentUrl = authWindow.location.href;
                 
-                if (currentUrl.includes('code=')) {
+                // Log every 10th poll attempt
+                if (pollCount % 10 === 0) {
+                    console.log('Character Distributor UI: Poll attempt', pollCount, 'checking auth window');
+                }
+                
+                if (currentUrl.startsWith(redirectUri)) {
+                    console.log('Character Distributor UI: Detected redirect to callback URL');
                     clearInterval(checkAuthInterval);
-                    authWindow.close();
                     
                     // Extract the authorization code from the URL
                     const code = new URL(currentUrl).searchParams.get('code');
@@ -907,20 +1168,26 @@ async function authenticateWithDropbox() {
                         // Exchange the authorization code for an access token
                         await exchangeCodeForToken(code, appKey, redirectUri);
                     } else {
-                        $('#auth_status').text('Authentication failed').removeClass('success').addClass('error');
-                        console.error('Character Distributor UI: No authorization code found in URL');
+                        // Check for error parameters
+                        const error = new URL(currentUrl).searchParams.get('error');
+                        const errorDescription = new URL(currentUrl).searchParams.get('error_description');
+                        
+                        console.error('Character Distributor UI: Auth error in URL params:', error, errorDescription);
+                        $('#auth_status').text(`Authentication failed: ${errorDescription || error || 'Unknown error'}`).removeClass('success').addClass('error');
+                        toastr.error(errorDescription || error || 'Unknown error', 'Authentication Failed');
                     }
                 }
             } catch (pollError) {
-                // This typically happens when trying to access window.location from a window
-                // that has navigated to a different origin (CORS restriction)
-                // We can ignore this and keep polling
+                // Only log CORS errors occasionally to avoid flooding the console
+                if (pollCount % 20 === 0) {
+                    console.warn('Character Distributor UI: Cannot access auth window properties (likely CORS) - continuing to poll');
+                }
             }
         }, 500);
     } catch (error) {
         console.error('Character Distributor UI: Authentication error', error);
         $('#auth_status').text('Authentication error').removeClass('success').addClass('error');
-        toastr.error('Error during authentication process', 'Authentication Failed');
+        toastr.error(`Error during authentication process: ${error.message}`, 'Authentication Failed');
     }
 }
 
@@ -1020,56 +1287,164 @@ async function sendTokenToServer() {
         // Update UI to show token being sent
         $('#auth_status').text('Sending token to server...');
         
+        // Validate authData
+        if (!authData || !authData.accessToken) {
+            console.error('Character Distributor UI: No valid token data available');
+            $('#auth_status').text('Authentication failed: No valid token').removeClass('success').addClass('error');
+            toastr.error('No valid authentication token available', 'Authentication Failed');
+            return;
+        }
+        
         // Prepare the request
         const requestBody = {
             accessToken: authData.accessToken,
-            tokenType: authData.tokenType,
-            expiresIn: authData.expiresIn,
+            tokenType: authData.tokenType || 'bearer',
+            expiresIn: authData.expiresIn || 14400,
             refreshToken: authData.refreshToken
         };
         
         // Log sanitized details
         console.log('Character Distributor UI: Token length:', authData.accessToken?.length || 0);
-        console.log('Character Distributor UI: Token type:', authData.tokenType);
-        console.log('Character Distributor UI: Expires in:', authData.expiresIn);
+        console.log('Character Distributor UI: Token type:', authData.tokenType || 'bearer');
+        console.log('Character Distributor UI: Expires in:', authData.expiresIn || 14400);
         console.log('Character Distributor UI: Refresh token provided:', !!authData.refreshToken);
         
-        // Send the token to the server plugin
-        const response = await fetch('/api/plugins/character-distributor/auth', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...getRequestHeaders()
-            },
-            body: JSON.stringify(requestBody)
-        });
+        // Check if the app keys are set in the UI/settings
+        const appKey = $('#dropbox_app_key').val() || extension_settings[MODULE_NAME].dropboxAppKey;
+        const appSecret = $('#dropbox_app_secret').val() || extension_settings[MODULE_NAME].dropboxAppSecret;
         
-        // Handle the response
-        if (response.ok) {
-            const data = await response.json();
-            
-            if (data.success) {
-                console.log('Character Distributor UI: Server authenticated successfully');
-                $('#auth_status').text('Authenticated').removeClass('error').addClass('success');
-                toastr.success('Successfully authenticated with Dropbox', 'Authentication Successful');
-                
-                // Refresh the server status to update UI
-                await checkServerStatus();
-            } else {
-                console.error('Character Distributor UI: Server authentication failed', data);
-                $('#auth_status').text('Server authentication failed').removeClass('success').addClass('error');
-                toastr.error(data.error || 'Unknown error', 'Server Authentication Failed');
+        if (!appKey || !appSecret) {
+            console.error('Character Distributor UI: App key or secret is missing');
+            $('#auth_status').text('Authentication failed: Missing app credentials').removeClass('success').addClass('error');
+            toastr.error('Dropbox App Key and Secret must be configured', 'Authentication Failed');
+            return;
+        }
+        
+        // Ensure settings are saved and sent to server before proceeding
+        extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+        extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
+        saveSettingsDebounced();
+        
+        try {
+            console.log('Character Distributor UI: Sending settings to server before authentication');
+            const settingsSent = await sendSettingsToServer();
+            if (!settingsSent) {
+                console.error('Character Distributor UI: Failed to send settings to server');
+                $('#auth_status').text('Authentication failed: Could not configure server').removeClass('success').addClass('error');
+                toastr.error('Failed to send app credentials to server', 'Authentication Failed');
+                return;
             }
-        } else {
-            const errorText = await response.text();
-            console.error('Character Distributor UI: Server auth response error', response.status, errorText);
-            $('#auth_status').text('Server error').removeClass('success').addClass('error');
-            toastr.error(`Server error: ${response.status}`, 'Authentication Failed');
+        } catch (settingsError) {
+            console.error('Character Distributor UI: Error sending settings to server:', settingsError);
+            $('#auth_status').text('Authentication failed: Configuration error').removeClass('success').addClass('error');
+            toastr.error('Error configuring server with app credentials', 'Authentication Failed');
+            return;
+        }
+        
+        // Get headers and ensure content type is set
+        const headers = {
+            'Content-Type': 'application/json',
+            ...getRequestHeaders()
+        };
+        
+        // Set up request with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
+        
+        try {
+            // Send the token to the server plugin
+            const response = await fetch('/api/plugins/character-distributor/auth', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(requestBody),
+                signal: controller.signal
+            });
+            
+            // Clear timeout since request completed
+            clearTimeout(timeoutId);
+            
+            // Log full response details
+            console.log('Character Distributor UI: Auth response status:', response.status);
+            console.log('Character Distributor UI: Auth response status text:', response.statusText);
+            
+            // Handle the response
+            if (response.ok) {
+                let data;
+                try {
+                    const responseText = await response.text();
+                    console.log('Character Distributor UI: Auth response text:', responseText);
+                    data = responseText ? JSON.parse(responseText) : { success: true };
+                } catch (parseError) {
+                    console.warn('Character Distributor UI: Could not parse response as JSON:', parseError);
+                    data = { success: true }; // Assume success if we can't parse the response
+                }
+                
+                if (data.success) {
+                    console.log('Character Distributor UI: Token sent successfully');
+                    $('#auth_status').text('Authenticated').addClass('success').removeClass('error');
+                    toastr.success('Successfully authenticated with Dropbox');
+                    
+                    // Store the token in localStorage for persistence
+                    storeAuthToken(authData.accessToken, authData.tokenType, authData.expiresIn, authData.refreshToken);
+                    
+                    // Check server status after a short delay to confirm
+                    setTimeout(refreshAuthStatus, 2000);
+                    return true;
+                } else {
+                    console.error('Character Distributor UI: Server returned success=false:', data.error);
+                    $('#auth_status').text(`Authentication failed: ${data.error || 'Unknown server error'}`).removeClass('success').addClass('error');
+                    toastr.error(data.error || 'Unknown server error', 'Authentication Failed');
+                    return false;
+                }
+            } else {
+                try {
+                    // Try to parse error response
+                    const errorText = await response.text();
+                    let errorData;
+                    let errorMessage = `Server error (${response.status})`;
+                    
+                    try {
+                        errorData = JSON.parse(errorText);
+                        console.error('Character Distributor UI: Server error response:', errorData);
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (jsonError) {
+                        // If we can't parse the error as JSON, use the text directly
+                        console.error('Character Distributor UI: Server error text:', errorText);
+                        errorMessage = errorText || errorMessage;
+                    }
+                    
+                    $('#auth_status').text(`Authentication failed: ${errorMessage}`).removeClass('success').addClass('error');
+                    toastr.error(errorMessage, `Authentication Failed (${response.status})`);
+                    return false;
+                } catch (responseError) {
+                    console.error('Character Distributor UI: Error reading response:', responseError);
+                    $('#auth_status').text(`Authentication failed: Server error (${response.status})`).removeClass('success').addClass('error');
+                    toastr.error(`Server error (${response.status})`, 'Authentication Failed');
+                    return false;
+                }
+            }
+        } catch (fetchError) {
+            // Always clear the timeout to prevent memory leaks
+            clearTimeout(timeoutId);
+            
+            // Handle timeout errors specially
+            if (fetchError.name === 'AbortError') {
+                console.error('Character Distributor UI: Auth request timed out after 15 seconds');
+                $('#auth_status').text('Authentication failed: Server timeout').removeClass('success').addClass('error');
+                toastr.error('Server is not responding', 'Authentication Timeout');
+            } else {
+                console.error('Character Distributor UI: Fetch error during authentication:', fetchError);
+                $('#auth_status').text(`Authentication failed: ${fetchError.message}`).removeClass('success').addClass('error');
+                toastr.error(`Network error: ${fetchError.message}`, 'Authentication Failed');
+            }
+            
+            return false;
         }
     } catch (error) {
-        console.error('Character Distributor UI: Error sending token to server', error);
-        $('#auth_status').text('Error sending token').removeClass('success').addClass('error');
-        toastr.error('Error sending authentication token to server', 'Authentication Failed');
+        console.error('Character Distributor UI: Error sending token to server:', error);
+        $('#auth_status').text(`Authentication failed: ${error.message || 'Unknown error'}`).removeClass('success').addClass('error');
+        toastr.error(`Error: ${error.message || 'Unknown error'}`, 'Authentication Failed');
+        return false;
     }
 }
 
@@ -1265,118 +1640,140 @@ jQuery(async () => {
     loadCharacterList();
     
     // Check for auth token in localStorage after a short delay to ensure everything is loaded
-    console.log('Setting up localStorage token check...');
-    setTimeout(() => {
-        console.log('Running delayed localStorage token check...');
-        checkLocalStorageForToken();
+    console.log('Character Distributor UI: Setting up localStorage token check...');
+    setTimeout(async () => {
+        console.log('Character Distributor UI: Running delayed localStorage token check...');
+        try {
+            await checkLocalStorageForToken();
+        } catch (error) {
+            console.error('Character Distributor UI: Error during localStorage token check:', error);
+        }
     }, 2000);
     
     console.log('Character Distributor UI: Extension initialized');
 });
 
 // Check localStorage for auth token
-function checkLocalStorageForToken() {
+async function checkLocalStorageForToken() {
     // Check if there's a token in localStorage
     const accessToken = localStorage.getItem('dropbox_auth_token');
     const tokenType = localStorage.getItem('dropbox_token_type');
     const expiresIn = localStorage.getItem('dropbox_expires_in');
     const timestamp = localStorage.getItem('dropbox_auth_timestamp');
+    const refreshToken = localStorage.getItem('dropbox_refresh_token');
     
     console.log('Character Distributor UI: Checking localStorage for token...');
     console.log('Token exists:', !!accessToken);
     console.log('Timestamp exists:', !!timestamp);
     console.log('Token length:', accessToken?.length || 0);
+    console.log('Refresh token exists:', !!refreshToken);
     
     // Make sure we have app keys configured before trying to use the token
-    if (!extension_settings[MODULE_NAME].dropboxAppKey || !extension_settings[MODULE_NAME].dropboxAppSecret) {
+    const appKey = $('#dropbox_app_key').val() || extension_settings[MODULE_NAME].dropboxAppKey;
+    const appSecret = $('#dropbox_app_secret').val() || extension_settings[MODULE_NAME].dropboxAppSecret;
+    
+    if (!appKey || !appSecret) {
         console.warn('Character Distributor UI: App Key or Secret not configured. Cannot use saved token.');
         clearLocalStorageTokens();
         return;
     }
     
-    // If we have a token and it's recent (within last 5 minutes)
-    if (accessToken && timestamp) {
-        const age = Date.now() - parseInt(timestamp, 10);
-        console.log('Token age (ms):', age);
+    // Make sure settings are saved with the current app key/secret
+    extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+    extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
+    saveSettingsDebounced();
+    
+    // Make sure settings are sent to server
+    try {
+        console.log('Character Distributor UI: Sending settings to server before using saved token');
+        await sendSettingsToServer();
+    } catch (error) {
+        console.error('Character Distributor UI: Error sending settings to server:', error);
+        toastr.error('Could not configure server settings', 'Token Restoration Failed');
+        return;
+    }
+    
+    // If we have a token, try to use it
+    if (accessToken) {
+        console.log('Character Distributor UI: Found token in localStorage, attempting to use it');
         
-        if (age < 5 * 60 * 1000) { // 5 minutes
-            console.log('Character Distributor UI: Found valid auth token in localStorage');
+        // Check token age if timestamp exists
+        if (timestamp) {
+            const tokenAge = Date.now() - parseInt(timestamp);
+            const maxAge = 3600000; // 1 hour in milliseconds
             
-            // Ensure headers are set correctly
-            const headers = getRequestHeaders();
-            headers['Content-Type'] = 'application/json';
+            if (tokenAge > maxAge && !refreshToken) {
+                console.warn(`Character Distributor UI: Token is old (${Math.floor(tokenAge / 60000)} minutes), skipping auto-login`);
+                toastr.info('Found an old saved token but no refresh token. Please re-authenticate.', 'Authentication Needed');
+                return;
+            }
+        }
+        
+        // Store in authData for use by sendTokenToServer
+        authData = {
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresIn: parseInt(expiresIn || '14400'),
+            tokenType: tokenType || 'bearer'
+        };
+        
+        // Update UI
+        $('#auth_status').text('Restoring saved authentication...');
+        
+        try {
+            // Send token to server
+            await sendTokenToServer();
+            console.log('Character Distributor UI: Successfully restored authentication from localStorage');
             
-            // Send token to server plugin
-            fetch('/api/plugins/character-distributor/auth', {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({ 
-                    accessToken, 
-                    tokenType: tokenType || 'bearer', 
-                    expiresIn: expiresIn || '14400'
-                })
-            })
-            .then(response => {
-                console.log('Auth API response status:', response.status);
-                return response.text().then(text => {
-                    try {
-                        return text ? JSON.parse(text) : {};
-                    } catch (e) {
-                        console.error('Failed to parse response:', text);
-                        return { rawText: text };
-                    }
-                }).then(data => {
-                    console.log('Auth API response data:', data);
-                    
-                    if (response.ok) {
-                        $('#auth_status').text('Authenticated');
-                        $('#auth_status').addClass('success').removeClass('error');
-                        toastr.success('Successfully authenticated with Dropbox using saved token');
-                        
-                        // Refresh the status to confirm
-                        setTimeout(refreshAuthStatus, 1000);
-                    } else {
-                        $('#auth_status').text('Authentication failed');
-                        $('#auth_status').addClass('error').removeClass('success');
-                        
-                        let errorMsg = 'Failed to authenticate with saved token';
-                        if (data.error) {
-                            errorMsg += ': ' + data.error;
-                        } else if (data.rawText) {
-                            errorMsg += ' (check console for details)';
-                        }
-                        
-                        toastr.error(errorMsg);
-                    }
-                    
-                    // Clear localStorage tokens after use regardless of success/failure
-                    clearLocalStorageTokens();
-                });
-            })
-            .catch(error => {
-                console.error('Character Distributor UI: Error saving auth token from localStorage', error);
-                toastr.error('Error authenticating with Dropbox: ' + error.message);
-                $('#auth_status').text('Authentication failed');
-                $('#auth_status').addClass('error').removeClass('success');
-                clearLocalStorageTokens();
-            });
-        } else {
-            // Token is too old, clear it
-            console.log('Token too old, clearing it');
+            // Clear tokens from localStorage after successful restoration
+            // This prevents auto-login if the server rejects the token next time
+            clearLocalStorageTokens(); 
+        } catch (error) {
+            console.error('Character Distributor UI: Error sending saved token to server:', error);
+            $('#auth_status').text('Failed to restore authentication').removeClass('success').addClass('error');
+            toastr.error('Could not restore authentication from saved token', 'Authentication Failed');
+            
+            // Clear the invalid saved token
             clearLocalStorageTokens();
         }
     } else {
-        console.log('No valid token found in localStorage');
+        console.log('Character Distributor UI: No saved token found in localStorage');
     }
 }
 
 // Clear localStorage tokens
 function clearLocalStorageTokens() {
-    localStorage.removeItem('dropbox_auth_token');
-    localStorage.removeItem('dropbox_token_type');
-    localStorage.removeItem('dropbox_expires_in');
-    localStorage.removeItem('dropbox_auth_timestamp');
-    localStorage.removeItem('dropboxAuthPending');
+    try {
+        console.log('Character Distributor UI: Clearing auth tokens from localStorage');
+        
+        // Get current values for logging
+        const hadToken = !!localStorage.getItem('dropbox_auth_token');
+        const hadRefreshToken = !!localStorage.getItem('dropbox_refresh_token');
+        
+        // Remove all token-related items
+        localStorage.removeItem('dropbox_auth_token');
+        localStorage.removeItem('dropbox_token_type');
+        localStorage.removeItem('dropbox_expires_in');
+        localStorage.removeItem('dropbox_auth_timestamp');
+        localStorage.removeItem('dropbox_refresh_token');
+        
+        // Verify removal was successful
+        const tokenRemoved = !localStorage.getItem('dropbox_auth_token');
+        const refreshTokenRemoved = !localStorage.getItem('dropbox_refresh_token');
+        
+        if (!tokenRemoved || !refreshTokenRemoved) {
+            console.error('Character Distributor UI: Failed to remove all tokens from localStorage');
+            return false;
+        }
+        
+        console.log('Character Distributor UI: Auth tokens cleared from localStorage');
+        console.log('Character Distributor UI: Removed access token:', hadToken);
+        console.log('Character Distributor UI: Removed refresh token:', hadRefreshToken);
+        return true;
+    } catch (error) {
+        console.error('Character Distributor UI: Error clearing auth tokens from localStorage:', error);
+        return false;
+    }
 }
 
 // Add custom styles
@@ -1474,4 +1871,54 @@ function registerExtensionAPI() {
     // Register the filtered characters endpoint for server to use
     registerSlashCommand('extension-api', 'ST-CharacterDistributor-UI', 'filtered-characters', handleFilteredCharactersRequest);
     console.log('Character Distributor UI: Registered API endpoint for filtered characters');
+}
+
+// Store authentication token in localStorage for persistence
+function storeAuthToken(accessToken, tokenType, expiresIn, refreshToken) {
+    try {
+        console.log('Character Distributor UI: Storing auth token in localStorage');
+        
+        // Validate parameters
+        if (!accessToken) {
+            console.error('Character Distributor UI: Cannot store null/empty token');
+            return false;
+        }
+        
+        if (typeof accessToken !== 'string') {
+            console.error('Character Distributor UI: Token must be a string, got:', typeof accessToken);
+            return false;
+        }
+        
+        if (accessToken.length < 10) {
+            console.warn('Character Distributor UI: Token is suspiciously short:', accessToken.length, 'chars');
+        }
+        
+        // Store the token with clean values
+        localStorage.setItem('dropbox_auth_token', accessToken);
+        localStorage.setItem('dropbox_token_type', tokenType || 'bearer');
+        localStorage.setItem('dropbox_expires_in', String(expiresIn || 14400));
+        localStorage.setItem('dropbox_auth_timestamp', Date.now().toString());
+        
+        // Only store refresh token if it exists and is a string
+        if (refreshToken && typeof refreshToken === 'string') {
+            localStorage.setItem('dropbox_refresh_token', refreshToken);
+            console.log('Character Distributor UI: Refresh token stored (length:', refreshToken.length, ')');
+        } else if (refreshToken) {
+            console.warn('Character Distributor UI: Invalid refresh token format, not storing');
+        }
+        
+        // Verify storage was successful
+        const storedToken = localStorage.getItem('dropbox_auth_token');
+        if (storedToken !== accessToken) {
+            console.error('Character Distributor UI: Token storage verification failed');
+            return false;
+        }
+        
+        console.log('Character Distributor UI: Auth token stored in localStorage successfully');
+        console.log('Character Distributor UI: Token expiration set to:', new Date(Date.now() + (parseInt(expiresIn || '14400') * 1000)).toISOString());
+        return true;
+    } catch (error) {
+        console.error('Character Distributor UI: Error storing auth token in localStorage:', error);
+        return false;
+    }
 } 
