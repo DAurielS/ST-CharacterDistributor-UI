@@ -1083,22 +1083,42 @@ async function authenticateWithDropbox() {
         await sendSettingsToServer();
         
         // Generate a code verifier and challenge for PKCE (improved security over implicit flow)
+        // The verifier is a random string that must be kept secret
+        // The challenge is derived from the verifier using a one-way function (SHA-256)
         const codeVerifier = generateCodeVerifier();
         const codeChallenge = await generateCodeChallenge(codeVerifier);
         
-        // Store code verifier in sessionStorage for later use
+        // Store code verifier in sessionStorage as a backup
+        // However, since sessionStorage is not shared between browser contexts,
+        // we'll also pass it through the state parameter
         sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
         console.log('Character Distributor UI: Stored code verifier in sessionStorage');
         
-        // Construct the authorization URL with code challenge
-        const redirectUri = window.location.origin + '/scripts/extensions/third-party/ST-CharacterDistributor-UI/public/oauth_callback.html';
-        console.log('Character Distributor UI: Redirect URI:', redirectUri);
+        // PKCE Flow:
+        // 1. We generate a random code verifier and a derived code challenge 
+        // 2. We send the challenge (but not the verifier) to the authorization server
+        // 3. The authorization server returns a code to the redirect URI
+        // 4. We use the original verifier and the code to request an access token
+        // 5. The server validates that the verifier matches the challenge it received
         
-        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline`; // Request refresh token with offline access
+        // Create a callback URL with state parameter that contains the code verifier
+        // We cannot modify the redirect URI after Dropbox sets it, but we can add a state parameter
+        // that will be preserved in the redirect
+        const baseRedirectUri = window.location.origin + '/scripts/extensions/third-party/ST-CharacterDistributor-UI/public/oauth_callback.html';
+        
+        // Add the code verifier as a state parameter - this will be preserved in the redirect
+        // Will be returned as ?state=... in the callback
+        const state = btoa(JSON.stringify({cv: codeVerifier}));
+        console.log('Character Distributor UI: Generated state with embedded code verifier');
+        
+        // The authorization URL includes state which will be passed back to the callback
+        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(baseRedirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline&state=${encodeURIComponent(state)}`; // Request refresh token with offline access
         console.log('Character Distributor UI: Authorization URL length:', authUrl.length);
         
-        // Store the app key in sessionStorage for the callback page to use
+        // Store the app key and code verifier in sessionStorage for the callback page to use
         sessionStorage.setItem('dropbox_app_key', appKey);
+        // We still store it in sessionStorage as a backup
+        sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
         
         // Open the authorization URL in a new tab/window
         const authWindow = window.open(authUrl, '_blank', 'width=800,height=600');

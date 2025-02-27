@@ -90,17 +90,46 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('OAuth callback page loaded at:', new Date().toISOString());
             
-            // Parse the URL for authorization code
+            // Parse the URL for authorization code and other parameters
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             const error = urlParams.get('error');
             const errorDescription = urlParams.get('error_description');
+            const state = urlParams.get('state');
+            
+            // Extract code verifier from state parameter (which is preserved during OAuth redirect)
+            let codeVerifier = null;
+            if (state) {
+                try {
+                    const stateData = JSON.parse(atob(state));
+                    if (stateData && stateData.cv) {
+                        codeVerifier = stateData.cv;
+                        console.log('Code verifier extracted from state parameter, length:', codeVerifier.length);
+                        sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
+                    }
+                } catch (e) {
+                    console.error('Error parsing state parameter:', e);
+                }
+            }
             
             console.log('URL parameters:', {
                 hasCode: !!code,
+                codeLength: code ? code.length : 0,
                 hasError: !!error,
-                errorDescription: errorDescription || 'none'
+                errorDescription: errorDescription || 'none',
+                hasState: !!state,
+                stateLength: state ? state.length : 0,
+                hasCodeVerifier: !!codeVerifier,
+                verifierLength: codeVerifier ? codeVerifier.length : 0
             });
+            
+            // Extended diagnostics
+            if (codeVerifier) {
+                console.log('PKCE Code Verifier diagnostics:');
+                console.log('- First 5 chars:', codeVerifier.substring(0, 5) + '...');
+                console.log('- Length:', codeVerifier.length);
+                console.log('- Character set valid:', /^[0-9a-fA-F]+$/.test(codeVerifier));
+            }
             
             const statusElement = document.getElementById('status');
             const tokenInfoElement = document.getElementById('token-info');
@@ -179,8 +208,8 @@
                 console.log('Exchanging code for token');
                 
                 try {
-                    // Get the code verifier from sessionStorage (in parent window)
-                    const codeVerifier = window.opener?.sessionStorage.getItem('dropbox_code_verifier');
+                    // Get the code verifier from sessionStorage (should be set from state parameter earlier)
+                    const codeVerifier = sessionStorage.getItem('dropbox_code_verifier');
                     console.log('Code verifier exists:', !!codeVerifier);
                     
                     if (!codeVerifier) {
