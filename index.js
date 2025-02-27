@@ -24,6 +24,14 @@ let isLoadingCharacters = false;
 let characterLoadDebounceTimer = null;
 let charactersLoaded = false;  // New flag to track if initial loading has happened
 
+// Add a new property to store the current authorization details with refresh token support
+let authData = {
+    accessToken: null,
+    refreshToken: null,
+    expiresIn: null,
+    tokenType: null
+};
+
 // Initialize extension settings if needed
 function loadSettings() {
     extension_settings[MODULE_NAME] = extension_settings[MODULE_NAME] || {};
@@ -251,6 +259,9 @@ async function initializeUI() {
     // Initial character list loading
     await loadCharacterList();
     charactersLoaded = true;
+
+    // Register extension API endpoints
+    registerExtensionAPI();
 }
 
 // Function to refresh character list with simple debouncing
@@ -502,33 +513,8 @@ async function filterCharactersByTags(excludeTags) {
     const characterFiles = [];
     
     try {
-        // Try to use the proper SillyTavern function to get characters
+        // Directly use the API method that works
         let characters = null;
-        
-        // Approach 1: Instead of direct call, use it as an async function
-        try {
-            if (typeof getCharacters === 'function') {
-                console.log('Character Distributor UI: Calling getCharacters() as async function');
-                // We need to await the function call since getCharacters is async
-                await getCharacters();
-                // The characters should now be populated in the global characters array
-                if (window.characters && Array.isArray(window.characters)) {
-                    characters = window.characters;
-                    console.log('Character Distributor UI: Retrieved characters from global array after getCharacters() call');
-                    console.log('Character Distributor UI: Characters array length:', characters.length);
-                    if (characters.length > 0) {
-                        // Log first character structure
-                        console.log('Character Distributor UI: First character structure:', JSON.stringify(characters[0]));
-                    }
-                } else {
-                    console.log('Character Distributor UI: Global characters array not populated after getCharacters() call');
-                }
-            } else {
-                console.log('Character Distributor UI: getCharacters function not available');
-            }
-        } catch (e) {
-            console.warn('Character Distributor UI: Error using getCharacters():', e);
-        }
         
         // Add a flag to track if we've previously seen a 404 on the API endpoint
         if (!window.characterDistributor) {
@@ -537,14 +523,14 @@ async function filterCharactersByTags(excludeTags) {
             };
         }
         
-        // Approach 2: Try to get characters from API directly using POST like the native function
-        if ((!characters || !Array.isArray(characters) || characters.length === 0) && !window.characterDistributor.apiUnavailable) {
-            console.log('Character Distributor UI: No valid characters from getCharacters(), trying direct API call');
+        // Use direct API call which we know works
+        if (!window.characterDistributor.apiUnavailable) {
+            console.log('Character Distributor UI: Making direct API call to get characters');
             try {
                 const response = await fetch('/api/characters/all', {
                     method: 'POST', // Using POST as in script.js
                     headers: getRequestHeaders(),
-                    body: JSON.stringify({ '': '' }) // Important: This empty object is required
+                    body: JSON.stringify({}) // Empty object is sufficient
                 });
                 
                 if (response.ok) {
@@ -563,16 +549,12 @@ async function filterCharactersByTags(excludeTags) {
                 console.warn('Character Distributor UI: Error fetching characters from API:', e);
             }
         } else {
-            if (window.characterDistributor.apiUnavailable) {
-                console.log('Character Distributor UI: Skipping API call as endpoint was previously unavailable');
-            } else {
-                console.log('Character Distributor UI: Using characters from getCharacters(), skipping API call');
-            }
+            console.log('Character Distributor UI: Skipping API call as endpoint was previously unavailable');
         }
         
-        // Approach 3: Fallback to window variables
+        // Approach 2: Fallback to window variables
         if (!characters || !Array.isArray(characters) || characters.length === 0) {
-            console.log('Character Distributor UI: No characters from primary methods, trying window variables');
+            console.log('Character Distributor UI: No characters from API call, trying window variables');
             characters = window.characters || 
                         (window.getCharacters && window.getCharacters()) || 
                         (window.charactersList) || 
@@ -852,193 +834,242 @@ function updateSyncStatus(result) {
     }
 }
 
-// Authenticate with Dropbox
-function authenticateWithDropbox() {
-    const appKey = extension_settings[MODULE_NAME].dropboxAppKey;
-    
-    if (!appKey) {
-        toastr.error('Please enter your Dropbox App Key in the settings');
-        return;
-    }
-    
-    const redirectUri = `${window.location.origin}${extensionFolderPath}/public/oauth_callback.html`;
-    const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}`;
-    
-    // Store a marker in localStorage that we're expecting an auth callback
-    localStorage.setItem('dropboxAuthPending', 'true');
-    
-    // Open popup with specific parameters to ensure window.opener works properly
-    const popup = window.open(authUrl, 'dropbox-auth', 'width=800,height=600,resizable=yes,scrollbars=yes,status=yes');
-    
-    // Check if popup was blocked
-    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-        toastr.warning('Popup blocked! Please allow popups for this site and try again, or use the manual token input option.');
-    }
-}
-
-// Handle manual token submission
-function submitManualToken() {
-    const accessToken = $('#manual_access_token').val().trim();
-    
-    if (!accessToken) {
-        toastr.error('Please enter an access token');
-        return;
-    }
-    
-    console.log('Character Distributor UI: Submitting manual token');
-    console.log('Character Distributor UI: Token length:', accessToken.length);
-    
-    // Make sure we have app keys configured
-    if (!extension_settings[MODULE_NAME].dropboxAppKey || !extension_settings[MODULE_NAME].dropboxAppSecret) {
-        toastr.error('Please enter your Dropbox App Key and App Secret in the settings first');
-        return;
-    }
-    
-    // Ensure headers are set properly
-    const headers = getRequestHeaders();
-    headers['Content-Type'] = 'application/json';
-    
-    // Send token to server plugin with detailed error handling
-    fetch('/api/plugins/character-distributor/auth', {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({ 
-            accessToken, 
-            tokenType: 'bearer', 
-            expiresIn: 14400 // Default 4 hours expiration if not specified
-        })
-    })
-    .then(response => {
-        console.log('Character Distributor UI: Auth response status:', response.status);
+// Authenticate with Dropbox using OAuth2 PKCE flow - now includes refresh token handling
+async function authenticateWithDropbox() {
+    try {
+        console.log('Character Distributor UI: Starting Dropbox authentication');
         
-        // Try to get detailed error information
-        return response.text().then(text => {
-            let data = {};
+        // Clear any previous auth data
+        authData = {
+            accessToken: null,
+            refreshToken: null,
+            expiresIn: null,
+            tokenType: null
+        };
+        
+        // Update UI to show auth in progress
+        $('#auth_status').text('Authentication in progress...');
+        
+        // Get app key from settings
+        const appKey = $('#dropbox_app_key').val();
+        
+        if (!appKey) {
+            toastr.error('App Key must be configured before authenticating', 'Authentication Error');
+            console.error('Character Distributor UI: Missing Dropbox App Key');
+            $('#auth_status').text('Not authenticated').removeClass('success').addClass('error');
+            return;
+        }
+        
+        // Save the settings before continuing
+        extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+        extension_settings[MODULE_NAME].dropboxAppSecret = $('#dropbox_app_secret').val();
+        saveSettingsDebounced();
+        
+        console.log('Character Distributor UI: Saved app key and secret to settings');
+        
+        // Generate a code verifier and challenge for PKCE (improved security over implicit flow)
+        const codeVerifier = generateCodeVerifier();
+        const codeChallenge = await generateCodeChallenge(codeVerifier);
+        
+        // Store code verifier in sessionStorage for later use
+        sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
+        
+        // Construct the authorization URL with code challenge
+        const redirectUri = window.location.origin + window.location.pathname;
+        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline`; // Request refresh token with offline access
+        
+        // Open the authorization URL in a new tab/window
+        const authWindow = window.open(authUrl, '_blank', 'width=800,height=600');
+        
+        // Poll for authorization code in URL
+        const checkAuthInterval = setInterval(async () => {
             try {
-                // Try to parse as JSON if possible
-                data = text ? JSON.parse(text) : {};
-            } catch (e) {
-                console.log('Character Distributor UI: Response is not JSON:', text);
-                // Just store the raw text
-                data = { rawText: text };
+                if (authWindow.closed) {
+                    clearInterval(checkAuthInterval);
+                    $('#auth_status').text('Authentication canceled').removeClass('success').addClass('error');
+                    console.log('Character Distributor UI: Auth window closed by user');
+                    return;
+                }
+                
+                // Check if the window location contains the authorization code
+                const currentUrl = authWindow.location.href;
+                
+                if (currentUrl.includes('code=')) {
+                    clearInterval(checkAuthInterval);
+                    authWindow.close();
+                    
+                    // Extract the authorization code from the URL
+                    const code = new URL(currentUrl).searchParams.get('code');
+                    
+                    if (code) {
+                        console.log('Character Distributor UI: Received authorization code');
+                        
+                        // Exchange the authorization code for an access token
+                        await exchangeCodeForToken(code, appKey, redirectUri);
+                    } else {
+                        $('#auth_status').text('Authentication failed').removeClass('success').addClass('error');
+                        console.error('Character Distributor UI: No authorization code found in URL');
+                    }
+                }
+            } catch (pollError) {
+                // This typically happens when trying to access window.location from a window
+                // that has navigated to a different origin (CORS restriction)
+                // We can ignore this and keep polling
             }
-            return { status: response.status, ok: response.ok, data };
-        });
-    })
-    .then(({ status, ok, data }) => {
-        console.log('Character Distributor UI: Parsed response data:', data);
-        
-        if (ok) {
-            $('#auth_status').text('Authenticated');
-            $('#auth_status').addClass('success').removeClass('error');
-            $('#manual_access_token').val(''); // Clear the token field for security
-            toastr.success('Successfully authenticated with Dropbox using manual token');
-            
-            // Refresh the status to confirm
-            setTimeout(refreshAuthStatus, 1000);
-        } else {
-            $('#auth_status').text('Authentication failed');
-            $('#auth_status').addClass('error').removeClass('success');
-            
-            // Show a more detailed error message if available
-            let errorMsg = 'Failed to authenticate with Dropbox';
-            if (data.error) {
-                errorMsg += ': ' + data.error;
-            } else if (data.rawText) {
-                errorMsg += ' (check console for details)';
-            }
-            
-            toastr.error(errorMsg);
-        }
-    })
-    .catch(error => {
-        console.error('Character Distributor UI: Error during authentication:', error);
-        $('#auth_status').text('Authentication failed');
-        $('#auth_status').addClass('error').removeClass('success');
-        toastr.error('Error during Dropbox authentication: ' + error.message);
-    });
+        }, 500);
+    } catch (error) {
+        console.error('Character Distributor UI: Authentication error', error);
+        $('#auth_status').text('Authentication error').removeClass('success').addClass('error');
+        toastr.error('Error during authentication process', 'Authentication Failed');
+    }
 }
 
-// Handle Dropbox auth callback
-function handleDropboxAuthCallback(event) {
-    if (event.data && event.data.source === 'dropbox-auth') {
-        console.log('Character Distributor UI: Received Dropbox auth callback');
+// Exchange authorization code for access and refresh tokens
+async function exchangeCodeForToken(code, appKey, redirectUri) {
+    try {
+        console.log('Character Distributor UI: Exchanging authorization code for tokens');
         
-        const { accessToken, tokenType, expiresIn } = event.data;
+        // Get the code verifier from sessionStorage
+        const codeVerifier = sessionStorage.getItem('dropbox_code_verifier');
         
-        if (accessToken) {
-            console.log('Character Distributor UI: Received token length:', accessToken.length);
-            
-            // Make sure we have app keys configured
-            if (!extension_settings[MODULE_NAME].dropboxAppKey || !extension_settings[MODULE_NAME].dropboxAppSecret) {
-                console.error('Character Distributor UI: App Key or Secret not configured');
-                toastr.error('Please enter your Dropbox App Key and App Secret in the settings first');
-                return;
-            }
-            
-            // Ensure headers are set properly
-            const headers = getRequestHeaders();
-            headers['Content-Type'] = 'application/json';
-            
-            // Send token to server plugin
-            fetch('/api/plugins/character-distributor/auth', {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({ accessToken, tokenType, expiresIn })
-            })
-            .then(response => {
-                console.log('Character Distributor UI: Auth response status:', response.status);
-                
-                // Try to get detailed error information
-                return response.text().then(text => {
-                    let data = {};
-                    try {
-                        // Try to parse as JSON if possible
-                        data = text ? JSON.parse(text) : {};
-                    } catch (e) {
-                        console.log('Character Distributor UI: Response is not JSON:', text);
-                        // Just store the raw text
-                        data = { rawText: text };
-                    }
-                    return { status: response.status, ok: response.ok, data };
-                });
-            })
-            .then(({ status, ok, data }) => {
-                console.log('Character Distributor UI: Parsed response data:', data);
-                
-                if (ok) {
-                    $('#auth_status').text('Authenticated');
-                    $('#auth_status').addClass('success').removeClass('error');
-                    toastr.success('Successfully authenticated with Dropbox');
-                    
-                    // Refresh the status to confirm
-                    setTimeout(refreshAuthStatus, 1000);
-                } else {
-                    $('#auth_status').text('Authentication failed');
-                    $('#auth_status').addClass('error').removeClass('success');
-                    
-                    // Show a more detailed error message if available
-                    let errorMsg = 'Failed to authenticate with Dropbox';
-                    if (data.error) {
-                        errorMsg += ': ' + data.error;
-                    } else if (data.rawText) {
-                        errorMsg += ' (check console for details)';
-                    }
-                    
-                    toastr.error(errorMsg);
-                }
-            })
-            .catch(error => {
-                console.error('Character Distributor UI: Error saving auth token', error);
-                $('#auth_status').text('Authentication failed');
-                $('#auth_status').addClass('error').removeClass('success');
-                toastr.error('Error authenticating with Dropbox: ' + error.message);
-            });
-        } else {
-            $('#auth_status').text('Authentication failed');
-            $('#auth_status').addClass('error').removeClass('success');
-            toastr.error('Dropbox authentication failed: No token received');
+        if (!codeVerifier) {
+            console.error('Character Distributor UI: No code verifier found');
+            $('#auth_status').text('Authentication failed').removeClass('success').addClass('error');
+            toastr.error('Authentication session expired or invalid', 'Authentication Failed');
+            return;
         }
+        
+        // Prepare the token request
+        const tokenRequestBody = new URLSearchParams();
+        tokenRequestBody.append('code', code);
+        tokenRequestBody.append('grant_type', 'authorization_code');
+        tokenRequestBody.append('client_id', appKey);
+        tokenRequestBody.append('redirect_uri', redirectUri);
+        tokenRequestBody.append('code_verifier', codeVerifier);
+        
+        // Make the token request to Dropbox
+        const tokenResponse = await fetch('https://api.dropboxapi.com/oauth2/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: tokenRequestBody.toString()
+        });
+        
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error('Character Distributor UI: Token request failed', tokenResponse.status, errorText);
+            $('#auth_status').text('Token request failed').removeClass('success').addClass('error');
+            toastr.error(`Token request failed: ${tokenResponse.status}`, 'Authentication Failed');
+            return;
+        }
+        
+        // Parse the token response
+        const tokenData = await tokenResponse.json();
+        
+        if (!tokenData.access_token) {
+            console.error('Character Distributor UI: No access token in response', tokenData);
+            $('#auth_status').text('No access token received').removeClass('success').addClass('error');
+            toastr.error('No access token received from Dropbox', 'Authentication Failed');
+            return;
+        }
+        
+        console.log('Character Distributor UI: Received access token');
+        console.log('Character Distributor UI: Refresh token received:', !!tokenData.refresh_token);
+        
+        // Store the tokens
+        authData = {
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token || null,
+            expiresIn: tokenData.expires_in || 14400, // Default to 4 hours if not provided
+            tokenType: tokenData.token_type || 'bearer'
+        };
+        
+        // Send the tokens to the server plugin
+        await sendTokenToServer();
+    } catch (error) {
+        console.error('Character Distributor UI: Error exchanging code for token', error);
+        $('#auth_status').text('Token exchange error').removeClass('success').addClass('error');
+        toastr.error('Error exchanging authorization code for access token', 'Authentication Failed');
+    }
+}
+
+// Generate a code verifier for PKCE
+function generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    window.crypto.getRandomValues(array);
+    return Array.from(array, dec => ('0' + dec.toString(16)).slice(-2)).join('');
+}
+
+// Generate a code challenge from code verifier
+async function generateCodeChallenge(verifier) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const hash = await window.crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(hash)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
+
+// Send the token to the Character Distributor server plugin
+async function sendTokenToServer() {
+    try {
+        console.log('Character Distributor UI: Sending token to server');
+        
+        // Update UI to show token being sent
+        $('#auth_status').text('Sending token to server...');
+        
+        // Prepare the request
+        const requestBody = {
+            accessToken: authData.accessToken,
+            tokenType: authData.tokenType,
+            expiresIn: authData.expiresIn,
+            refreshToken: authData.refreshToken
+        };
+        
+        // Log sanitized details
+        console.log('Character Distributor UI: Token length:', authData.accessToken?.length || 0);
+        console.log('Character Distributor UI: Token type:', authData.tokenType);
+        console.log('Character Distributor UI: Expires in:', authData.expiresIn);
+        console.log('Character Distributor UI: Refresh token provided:', !!authData.refreshToken);
+        
+        // Send the token to the server plugin
+        const response = await fetch('/api/plugins/character-distributor/auth', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getRequestHeaders()
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        // Handle the response
+        if (response.ok) {
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Character Distributor UI: Server authenticated successfully');
+                $('#auth_status').text('Authenticated').removeClass('error').addClass('success');
+                toastr.success('Successfully authenticated with Dropbox', 'Authentication Successful');
+                
+                // Refresh the server status to update UI
+                await checkServerStatus();
+            } else {
+                console.error('Character Distributor UI: Server authentication failed', data);
+                $('#auth_status').text('Server authentication failed').removeClass('success').addClass('error');
+                toastr.error(data.error || 'Unknown error', 'Server Authentication Failed');
+            }
+        } else {
+            const errorText = await response.text();
+            console.error('Character Distributor UI: Server auth response error', response.status, errorText);
+            $('#auth_status').text('Server error').removeClass('success').addClass('error');
+            toastr.error(`Server error: ${response.status}`, 'Authentication Failed');
+        }
+    } catch (error) {
+        console.error('Character Distributor UI: Error sending token to server', error);
+        $('#auth_status').text('Error sending token').removeClass('success').addClass('error');
+        toastr.error('Error sending authentication token to server', 'Authentication Failed');
     }
 }
 
@@ -1116,45 +1147,35 @@ async function loadCharacterList() {
     try {
         console.log('Character Distributor UI: Loading character list...');
         
-        // Call getCharacters() as async function
-        console.log('Character Distributor UI: Calling getCharacters() as async function');
-        await getCharacters();
+        // Directly use the API call that we know works instead of getCharacters()
+        let allCharacters = null;
         
-        // Try to get characters from the global array
-        let allCharacters = window.characters;
-        console.log('Character Distributor UI: Global characters array type:', Array.isArray(allCharacters) ? 'array' : typeof allCharacters);
-        console.log('Character Distributor UI: Global characters length:', Array.isArray(allCharacters) ? allCharacters.length : 'not an array');
-        
-        // Validate characters array
-        if (!Array.isArray(allCharacters) || allCharacters.length === 0) {
-            console.log('Character Distributor UI: No valid characters from getCharacters(), trying direct API call');
+        try {
+            // Make the API call to get characters
+            console.log('Character Distributor UI: Making direct API call to /api/characters/all');
+            const response = await fetch('/api/characters/all', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({})
+            });
             
-            try {
-                // Make the API call to get characters
-                const response = await fetch('/api/characters/all', {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({})
-                });
-                
-                // Check if the API call was successful
-                if (response.ok) {
-                    allCharacters = await response.json();
-                    console.log('Character Distributor UI: Retrieved', allCharacters.length, 'characters from API');
+            // Check if the API call was successful
+            if (response.ok) {
+                allCharacters = await response.json();
+                console.log('Character Distributor UI: Retrieved', allCharacters.length, 'characters from API');
+            } else {
+                // If we get a 404, log the error
+                if (response.status === 404) {
+                    console.log('Character Distributor UI: API endpoint /api/characters/all returned 404, attempting fallback');
                 } else {
-                    // If we get a 404, mark the API as unavailable
-                    if (response.status === 404) {
-                        console.log('Character Distributor UI: API endpoint /api/characters/all returned 404, attempting fallback');
-                    } else {
-                        console.log('Character Distributor UI: API call failed with status', response.status);
-                    }
-                    // Try fallbacks
-                    allCharacters = useFallbackCharacters();
+                    console.log('Character Distributor UI: API call failed with status', response.status);
                 }
-            } catch (error) {
-                console.error('Character Distributor UI: Error fetching characters from API:', error);
+                // Try fallbacks
                 allCharacters = useFallbackCharacters();
             }
+        } catch (error) {
+            console.error('Character Distributor UI: Error fetching characters from API:', error);
+            allCharacters = useFallbackCharacters();
         }
         
         // Validate we got characters
@@ -1409,4 +1430,48 @@ async function checkDiagnostics() {
     } finally {
         $('#check_diagnostics').prop('disabled', false);
     }
+}
+
+// Add API endpoint to get filtered characters for server auto sync
+async function handleFilteredCharactersRequest(request, response) {
+    try {
+        console.log('Character Distributor UI: Received filtered characters request from server');
+        
+        // Extract exclude tags from the request
+        let excludeTags = [];
+        if (request.body && request.body.excludeTags && Array.isArray(request.body.excludeTags)) {
+            excludeTags = request.body.excludeTags;
+        } else {
+            // If no tags provided, use the extension settings
+            excludeTags = extension_settings[MODULE_NAME].excludeTags || [];
+        }
+        
+        console.log(`Character Distributor UI: Filtering characters with exclude tags: ${excludeTags.join(', ')}`);
+        
+        // Filter characters using the existing function
+        const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
+        
+        console.log(`Character Distributor UI: Returning ${characterFiles.length} allowed characters to server`);
+        console.log(`Character Distributor UI: Excluded ${excludedCharacters.length} characters due to tags`);
+        
+        // Return the filtered list
+        response.send({
+            success: true,
+            characterFiles: characterFiles,
+            excludedCharacters: excludedCharacters.length
+        });
+    } catch (error) {
+        console.error('Character Distributor UI: Error filtering characters for server', error);
+        response.send({
+            success: false,
+            error: error.message || 'Unknown error filtering characters'
+        });
+    }
+}
+
+// Register extension API endpoints
+function registerExtensionAPI() {
+    // Register the filtered characters endpoint for server to use
+    registerSlashCommand('extension-api', 'ST-CharacterDistributor-UI', 'filtered-characters', handleFilteredCharactersRequest);
+    console.log('Character Distributor UI: Registered API endpoint for filtered characters');
 } 
