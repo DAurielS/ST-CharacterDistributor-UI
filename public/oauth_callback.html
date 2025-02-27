@@ -282,13 +282,13 @@
                         // Send message repeatedly a few times to improve reliability
                         const sendMessage = () => {
                             try {
-                                window.opener.postMessage({
-                                    source: 'dropbox-auth',
+                        window.opener.postMessage({
+                            source: 'dropbox-auth',
                                     accessToken: tokenData.access_token,
                                     tokenType: tokenData.token_type,
                                     expiresIn: tokenData.expires_in,
                                     refreshToken: tokenData.refresh_token
-                                }, '*');
+                        }, '*');
                                 console.log('Token sent via postMessage');
                             } catch (err) {
                                 console.error('Error in postMessage attempt:', err);
@@ -320,7 +320,7 @@
                     } catch (postMessageError) {
                         console.error('Error sending token via postMessage:', postMessageError);
                     }
-                } else {
+                    } else {
                     console.log(window.opener ? 'Already communicated' : 'No opener window available');
                 }
                 
@@ -330,8 +330,8 @@
                     localStorage.setItem('dropbox_auth_token', tokenData.access_token);
                     localStorage.setItem('dropbox_token_type', tokenData.token_type || 'bearer');
                     localStorage.setItem('dropbox_expires_in', tokenData.expires_in?.toString() || '14400');
-                    localStorage.setItem('dropbox_auth_timestamp', Date.now().toString());
-                    
+                            localStorage.setItem('dropbox_auth_timestamp', Date.now().toString());
+                            
                     if (tokenData.refresh_token) {
                         localStorage.setItem('dropbox_refresh_token', tokenData.refresh_token);
                     }
@@ -340,19 +340,19 @@
                     
                     // Update UI
                     statusElement.innerHTML = '<span style="color: #00aa00;">✓</span> Authentication successful! Token saved.';
-                    statusElement.className = 'success';
-                    
+                            statusElement.className = 'success';
+                            
                     // Show guidance
                     guidanceElement.innerHTML = `
-                        <div class="guidance-box">
-                            <p><strong>✅ Authentication Complete!</strong></p>
-                            <p>The token has been saved to your browser storage.</p>
+                                <div class="guidance-box">
+                                    <p><strong>✅ Authentication Complete!</strong></p>
+                                    <p>The token has been saved to your browser storage.</p>
                             <p>You can close this window and return to SillyTavern.</p>
                             <p>The authentication status should update automatically within a few seconds.</p>
                             <p>If not, click the "Check Auth Status" button in SillyTavern.</p>
-                        </div>
-                    `;
-                    
+                                </div>
+                            `;
+                            
                     return true;
                 } catch (storageError) {
                     console.error('Error storing token in localStorage:', storageError);
@@ -361,8 +361,8 @@
                 // If all else fails, display token for manual copy
                 console.log('Displaying token for manual copy');
                 statusElement.innerHTML = 'Authentication successful, but unable to automatically send token.';
-                statusElement.className = 'success';
-                
+                            statusElement.className = 'success';
+                            
                 // Show manual copy UI
                 tokenInfoElement.style.display = 'block';
                 tokenInfoElement.innerHTML = `
@@ -375,35 +375,35 @@
                 
                 // Add guidance
                 guidanceElement.innerHTML = `
-                    <div class="guidance-box">
-                        <h3>Manual Token Copy Required</h3>
-                        <p>Please follow these steps:</p>
-                        <ol>
+                                <div class="guidance-box">
+                                    <h3>Manual Token Copy Required</h3>
+                                    <p>Please follow these steps:</p>
+                                    <ol>
                             <li>Copy the access token using the "Copy Token" button</li>
-                            <li>Return to SillyTavern</li>
-                            <li>In the "Dropbox Authentication" section, find the "Manual Token" textarea</li>
+                                        <li>Return to SillyTavern</li>
+                                        <li>In the "Dropbox Authentication" section, find the "Manual Token" textarea</li>
                             <li>Paste the token and click "Submit Token"</li>
-                        </ol>
-                    </div>
-                `;
-                
-                // Stop auto-close
-                autoClose = false;
-                
-                // Add copy button functionality
-                document.getElementById('copy-token').addEventListener('click', function() {
+                                    </ol>
+                                </div>
+                            `;
+                            
+                            // Stop auto-close
+                            autoClose = false;
+                            
+                            // Add copy button functionality
+                            document.getElementById('copy-token').addEventListener('click', function() {
                     navigator.clipboard.writeText(tokenData.access_token)
-                        .then(() => {
-                            this.textContent = 'Copied!';
-                            setTimeout(() => {
-                                this.textContent = 'Copy Token';
-                            }, 2000);
-                        })
-                        .catch(err => {
-                            console.error('Could not copy text: ', err);
-                            this.textContent = 'Failed to copy';
-                        });
-                });
+                                    .then(() => {
+                                        this.textContent = 'Copied!';
+                                        setTimeout(() => {
+                                            this.textContent = 'Copy Token';
+                                        }, 2000);
+                                    })
+                                    .catch(err => {
+                                        console.error('Could not copy text: ', err);
+                                        this.textContent = 'Failed to copy';
+                                    });
+                            });
                 
                 return false;
             }
@@ -414,8 +414,8 @@
                 
                 // Update UI
                 statusElement.innerHTML = `Authentication failed: ${errorMessage}`;
-                statusElement.className = 'error';
-                
+                    statusElement.className = 'error';
+                    
                 // Show guidance
                 guidanceElement.innerHTML = `
                     <div class="guidance-box">
@@ -432,8 +432,8 @@
                     </div>
                 `;
                 
-                autoClose = false;
-                
+                    autoClose = false;
+                    
                 // Try to notify parent window
                 if (window.opener && !communicated) {
                     try {
@@ -520,9 +520,9 @@
                     
                     if (autoClose && isSuccess) {
                         console.log('Auto-closing window due to successful authentication and countdown completion');
-                        window.close();
+                    window.close();
                     } else {
-                        countdownElement.parentElement.textContent = 'You can close this window when finished.';
+                    countdownElement.parentElement.textContent = 'You can close this window when finished.';
                     }
                 }
             }, 1000);
