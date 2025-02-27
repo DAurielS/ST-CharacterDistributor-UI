@@ -875,7 +875,7 @@ async function authenticateWithDropbox() {
         sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
         
         // Construct the authorization URL with code challenge
-        const redirectUri = window.location.origin + window.location.pathname;
+        const redirectUri = window.location.origin + '/scripts/extensions/third-party/ST-CharacterDistributor-UI/public/oauth_callback.html';
         const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline`; // Request refresh token with offline access
         
         // Open the authorization URL in a new tab/window
