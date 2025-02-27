@@ -88,13 +88,19 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('OAuth callback page loaded');
+            console.log('OAuth callback page loaded at:', new Date().toISOString());
             
             // Parse the URL for authorization code
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             const error = urlParams.get('error');
             const errorDescription = urlParams.get('error_description');
+            
+            console.log('URL parameters:', {
+                hasCode: !!code,
+                hasError: !!error,
+                errorDescription: errorDescription || 'none'
+            });
             
             const statusElement = document.getElementById('status');
             const tokenInfoElement = document.getElementById('token-info');
@@ -105,9 +111,44 @@
             let isSuccess = false;
             let communicated = false;
             
+            // For additional debugging, check if we have access to the parent window
+            if (window.opener) {
+                console.log('Parent window reference exists');
+                
+                try {
+                    // Just test if we can access the parent window at all
+                    const location = window.opener.location.href;
+                    console.log('Can access parent window location:', location);
+                } catch (e) {
+                    console.warn('Cannot access parent window location due to security restrictions:', e.message);
+                }
+            } else {
+                console.warn('No parent window reference available - callback was likely opened in a new tab');
+            }
+            
+            // Log sessionStorage and localStorage for debugging
+            try {
+                console.log('sessionStorage items:', Object.keys(sessionStorage).length);
+                console.log('localStorage items:', Object.keys(localStorage).length);
+                
+                if (sessionStorage.getItem('dropbox_code_verifier')) {
+                    console.log('Code verifier exists in sessionStorage');
+                } else {
+                    console.warn('No code verifier in sessionStorage');
+                }
+                
+                if (sessionStorage.getItem('dropbox_app_key')) {
+                    console.log('App key exists in sessionStorage');
+                } else {
+                    console.warn('No app key in sessionStorage');
+                }
+            } catch (e) {
+                console.warn('Error accessing storage:', e);
+            }
+            
             // Process the authorization code
             if (code) {
-                console.log('Received authorization code');
+                console.log('Received authorization code, length:', code.length);
                 statusElement.innerHTML = 'Authorization code received. Processing...';
                 statusElement.className = 'success';
                 
@@ -208,16 +249,31 @@
                 if (window.opener && !communicated) {
                     try {
                         console.log('Attempting to send token via postMessage');
-                        window.opener.postMessage({
-                            source: 'dropbox-auth',
-                            accessToken: tokenData.access_token,
-                            tokenType: tokenData.token_type,
-                            expiresIn: tokenData.expires_in,
-                            refreshToken: tokenData.refresh_token
-                        }, '*');
+                        
+                        // Send message repeatedly a few times to improve reliability
+                        const sendMessage = () => {
+                            try {
+                                window.opener.postMessage({
+                                    source: 'dropbox-auth',
+                                    accessToken: tokenData.access_token,
+                                    tokenType: tokenData.token_type,
+                                    expiresIn: tokenData.expires_in,
+                                    refreshToken: tokenData.refresh_token
+                                }, '*');
+                                console.log('Token sent via postMessage');
+                            } catch (err) {
+                                console.error('Error in postMessage attempt:', err);
+                            }
+                        };
+                        
+                        // Send immediately
+                        sendMessage();
+                        
+                        // And also try a few more times with delay
+                        setTimeout(sendMessage, 300);
+                        setTimeout(sendMessage, 1000);
                         
                         communicated = true;
-                        console.log('Token sent via postMessage');
                         
                         // Update UI
                         statusElement.innerHTML = '<span style="color: #00aa00;">✓</span> Authentication successful! You can close this window.';
@@ -225,7 +281,10 @@
                         
                         // Auto-close window after a short delay
                         setTimeout(() => {
-                            if (autoClose) window.close();
+                            if (autoClose) {
+                                console.log('Auto-closing window after successful postMessage');
+                                window.close();
+                            }
                         }, 2000);
                         
                         return true;
@@ -233,7 +292,7 @@
                         console.error('Error sending token via postMessage:', postMessageError);
                     }
                 } else {
-                    console.log('No opener window available or already communicated');
+                    console.log(window.opener ? 'Already communicated' : 'No opener window available');
                 }
                 
                 // Fallback to localStorage if postMessage fails or window.opener is unavailable
@@ -368,17 +427,36 @@
                 const urlAppKey = urlParams.get('app_key');
                 if (urlAppKey) return urlAppKey;
                 
+                // Try to get from sessionStorage (set by parent window before opening this page)
+                try {
+                    const sessionAppKey = sessionStorage.getItem('dropbox_app_key');
+                    if (sessionAppKey) {
+                        console.log('Found app key in sessionStorage');
+                        return sessionAppKey;
+                    }
+                } catch (e) {
+                    console.warn('Could not access sessionStorage:', e);
+                }
+                
                 // Try to get from opener window if available
                 if (window.opener) {
                     try {
+                        // Try to get from opener's sessionStorage first
+                        const openerAppKey = window.opener.sessionStorage.getItem('dropbox_app_key');
+                        if (openerAppKey) {
+                            console.log('Found app key in opener sessionStorage');
+                            return openerAppKey;
+                        }
+                        
                         // Check if extension_settings is available in opener window
                         const openerSettings = window.opener.extension_settings;
                         if (openerSettings && openerSettings['ST-CharacterDistributor-UI'] && 
                             openerSettings['ST-CharacterDistributor-UI'].dropboxAppKey) {
+                            console.log('Found app key in opener extension_settings');
                             return openerSettings['ST-CharacterDistributor-UI'].dropboxAppKey;
                         }
                     } catch (e) {
-                        console.warn('Could not access opener window settings:', e);
+                        console.warn('Could not access opener window data:', e);
                     }
                 }
                 
@@ -390,6 +468,7 @@
                         const settings = JSON.parse(settingsStr);
                         if (settings && settings['ST-CharacterDistributor-UI'] && 
                             settings['ST-CharacterDistributor-UI'].dropboxAppKey) {
+                            console.log('Found app key in localStorage settings');
                             return settings['ST-CharacterDistributor-UI'].dropboxAppKey;
                         }
                     }
@@ -411,6 +490,7 @@
                     clearInterval(timer);
                     
                     if (autoClose && isSuccess) {
+                        console.log('Auto-closing window due to successful authentication and countdown completion');
                         window.close();
                     } else {
                         countdownElement.parentElement.textContent = 'You can close this window when finished.';

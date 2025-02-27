@@ -443,10 +443,28 @@ async function initializeUI() {
     // Initial character list loading
     await loadCharacterList();
     charactersLoaded = true;
-
-    // Register extension API endpoints
-    registerExtensionAPI();
 }
+
+// Initialize extension when jQuery is ready
+jQuery(async () => {
+    await initializeUI();
+    
+    // Set up refresh interval for server status check
+    setInterval(checkServerStatus, 60000); // Check every minute
+
+    // Check for auth token in localStorage after a short delay to ensure everything is loaded
+    console.log('Character Distributor UI: Setting up localStorage token check...');
+    setTimeout(async () => {
+        console.log('Character Distributor UI: Running delayed localStorage token check...');
+        try {
+            await checkLocalStorageForToken();
+        } catch (error) {
+            console.error('Character Distributor UI: Error during localStorage token check:', error);
+        }
+    }, 2000);
+    
+    console.log('Character Distributor UI: Extension initialized');
+});
 
 // Function to refresh character list with simple debouncing
 function refreshCharacterList() {
@@ -1079,6 +1097,9 @@ async function authenticateWithDropbox() {
         const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline`; // Request refresh token with offline access
         console.log('Character Distributor UI: Authorization URL length:', authUrl.length);
         
+        // Store the app key in sessionStorage for the callback page to use
+        sessionStorage.setItem('dropbox_app_key', appKey);
+        
         // Open the authorization URL in a new tab/window
         const authWindow = window.open(authUrl, '_blank', 'width=800,height=600');
         
@@ -1089,108 +1110,19 @@ async function authenticateWithDropbox() {
             return;
         }
         
-        console.log('Character Distributor UI: Opened auth window, waiting for response');
+        console.log('Character Distributor UI: Opened auth window, waiting for response via postMessage');
+        // We're now relying on the postMessage communication or localStorage fallback
+        // with the callback page rather than polling, which was unreliable
         
-        // Poll for authorization code in URL
-        let pollCount = 0;
-        const maxPolls = 240; // 2 minutes at 500ms intervals
-        let windowWasClosed = false;
-        
-        const checkAuthInterval = setInterval(async () => {
-            pollCount++;
-            
-            if (pollCount > maxPolls) {
-                console.error('Character Distributor UI: Auth timeout after waiting for', pollCount * 500, 'ms');
-                clearInterval(checkAuthInterval);
-                toastr.error('Authentication timed out after 2 minutes', 'Authentication Failed');
+        // Set a reasonable timeout for the overall process (3 minutes)
+        setTimeout(() => {
+            // Only show timeout message if we're still in the "Authentication in progress" state
+            if ($('#auth_status').text() === 'Authentication in progress...') {
+                console.warn('Character Distributor UI: Auth process timed out after 3 minutes');
                 $('#auth_status').text('Authentication timed out').removeClass('success').addClass('error');
-                return;
+                toastr.warning('Authentication process timed out after 3 minutes', 'Authentication Timeout');
             }
-            
-            // Check if the window is still open
-            if (authWindow.closed) {
-                if (!windowWasClosed) {
-                    console.log('Character Distributor UI: Auth window was closed by user after', pollCount * 500, 'ms');
-                    windowWasClosed = true;
-                    
-                    // Check if we already got a success message (via postMessage)
-                    if ($('#auth_status').text() !== 'Authentication in progress...') {
-                        console.log('Character Distributor UI: Auth status was already updated:', $('#auth_status').text());
-                        clearInterval(checkAuthInterval);
-                        return;
-                    }
-                    
-                    // Check localStorage for a token that might have been saved
-                    if (localStorage.getItem('dropbox_auth_token')) {
-                        console.log('Character Distributor UI: Found token in localStorage after window closed');
-                        const token = localStorage.getItem('dropbox_auth_token');
-                        const tokenType = localStorage.getItem('dropbox_token_type') || 'bearer';
-                        const expiresIn = localStorage.getItem('dropbox_expires_in') || '14400';
-                        
-                        // Use the token from localStorage
-                        authData = {
-                            accessToken: token,
-                            refreshToken: localStorage.getItem('dropbox_refresh_token'),
-                            expiresIn: parseInt(expiresIn),
-                            tokenType: tokenType
-                        };
-                        
-                        // Send token to server
-                        clearInterval(checkAuthInterval);
-                        await sendTokenToServer();
-                        
-                        // Clean up localStorage
-                        clearLocalStorageTokens();
-                        return;
-                    }
-                    
-                    // If we get here, the window was closed without authentication
-                    clearInterval(checkAuthInterval);
-                    toastr.warning('Authentication window was closed', 'Authentication Incomplete');
-                    $('#auth_status').text('Authentication cancelled').removeClass('success error');
-                }
-                return;
-            }
-            
-            try {
-                // Check if the auth window URL changed to the redirect URI
-                const currentUrl = authWindow.location.href;
-                
-                // Log every 10th poll attempt
-                if (pollCount % 10 === 0) {
-                    console.log('Character Distributor UI: Poll attempt', pollCount, 'checking auth window URL');
-                }
-                
-                if (currentUrl.startsWith(redirectUri)) {
-                    console.log('Character Distributor UI: Detected redirect to callback URL');
-                    clearInterval(checkAuthInterval);
-                    
-                    // Extract the authorization code from the URL
-                    const code = new URL(currentUrl).searchParams.get('code');
-                    
-                    if (code) {
-                        console.log('Character Distributor UI: Received authorization code');
-                        
-                        // Exchange the authorization code for an access token
-                        await exchangeCodeForToken(code, appKey, redirectUri);
-                    } else {
-                        // Check for error parameters
-                        const error = new URL(currentUrl).searchParams.get('error');
-                        const errorDescription = new URL(currentUrl).searchParams.get('error_description');
-                        
-                        console.error('Character Distributor UI: Auth error in URL params:', error, errorDescription);
-                        $('#auth_status').text(`Authentication failed: ${errorDescription || error || 'Unknown error'}`).removeClass('success').addClass('error');
-                        toastr.error(errorDescription || error || 'Unknown error', 'Authentication Failed');
-                    }
-                }
-            } catch (pollError) {
-                // This is often a CORS error while accessing cross-origin window properties
-                // Only log occasionally to avoid flooding the console
-                if (pollCount % 20 === 0) {
-                    console.warn('Character Distributor UI: Cannot access auth window properties (likely CORS) - continuing to poll');
-                }
-            }
-        }, 500);
+        }, 180000);
     } catch (error) {
         console.error('Character Distributor UI: Authentication error', error);
         $('#auth_status').text('Authentication error').removeClass('success').addClass('error');
@@ -1636,30 +1568,6 @@ function populateCharacterDropdown(characters) {
     });
 }
 
-// Initialize extension when jQuery is ready
-jQuery(async () => {
-    await initializeUI();
-    
-    // Set up refresh interval for server status check
-    setInterval(checkServerStatus, 60000); // Check every minute
-    
-    // Load character list
-    loadCharacterList();
-    
-    // Check for auth token in localStorage after a short delay to ensure everything is loaded
-    console.log('Character Distributor UI: Setting up localStorage token check...');
-    setTimeout(async () => {
-        console.log('Character Distributor UI: Running delayed localStorage token check...');
-        try {
-            await checkLocalStorageForToken();
-        } catch (error) {
-            console.error('Character Distributor UI: Error during localStorage token check:', error);
-        }
-    }, 2000);
-    
-    console.log('Character Distributor UI: Extension initialized');
-});
-
 // Check localStorage for auth token
 async function checkLocalStorageForToken() {
     // Check if there's a token in localStorage
@@ -1834,50 +1742,6 @@ async function checkDiagnostics() {
     } finally {
         $('#check_diagnostics').prop('disabled', false);
     }
-}
-
-// Add API endpoint to get filtered characters for server auto sync
-async function handleFilteredCharactersRequest(request, response) {
-    try {
-        console.log('Character Distributor UI: Received filtered characters request from server');
-        
-        // Extract exclude tags from the request
-        let excludeTags = [];
-        if (request.body && request.body.excludeTags && Array.isArray(request.body.excludeTags)) {
-            excludeTags = request.body.excludeTags;
-        } else {
-            // If no tags provided, use the extension settings
-            excludeTags = extension_settings[MODULE_NAME].excludeTags || [];
-        }
-        
-        console.log(`Character Distributor UI: Filtering characters with exclude tags: ${excludeTags.join(', ')}`);
-        
-        // Filter characters using the existing function
-        const { excludedCharacters, characterFiles } = await filterCharactersByTags(excludeTags);
-        
-        console.log(`Character Distributor UI: Returning ${characterFiles.length} allowed characters to server`);
-        console.log(`Character Distributor UI: Excluded ${excludedCharacters.length} characters due to tags`);
-        
-        // Return the filtered list
-        response.send({
-            success: true,
-            characterFiles: characterFiles,
-            excludedCharacters: excludedCharacters.length
-        });
-    } catch (error) {
-        console.error('Character Distributor UI: Error filtering characters for server', error);
-        response.send({
-            success: false,
-            error: error.message || 'Unknown error filtering characters'
-        });
-    }
-}
-
-// Register extension API endpoints
-function registerExtensionAPI() {
-    // Register the filtered characters endpoint for server to use
-    registerSlashCommand('extension-api', 'ST-CharacterDistributor-UI', 'filtered-characters', handleFilteredCharactersRequest);
-    console.log('Character Distributor UI: Registered API endpoint for filtered characters');
 }
 
 // Store authentication token in localStorage for persistence
