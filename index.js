@@ -449,8 +449,13 @@ async function initializeUI() {
 jQuery(async () => {
     await initializeUI();
     
-    // Set up refresh interval for server status check
-    setInterval(checkServerStatus, 60000); // Check every minute
+    // Set up refresh interval for server status check (and auto-sync)
+    // Check every 5 minutes instead of every minute to reduce unnecessary requests
+    // The auto-sync logic in checkServerStatus will handle proper timing
+    setInterval(checkServerStatus, 5 * 60 * 1000); 
+
+    // Also do an immediate status check after a short delay to verify initial state
+    setTimeout(checkServerStatus, 10000);
 
     // Check for auth token in localStorage after a short delay to ensure everything is loaded
     console.log('Character Distributor UI: Setting up localStorage token check...');
@@ -919,6 +924,36 @@ async function checkServerStatus() {
                     } else {
                         $('#auth_status').removeClass('success error');
                     }
+                }
+                
+                // Check if auto-sync should be triggered
+                if (extension_settings[MODULE_NAME].autoSync && status.authenticated) {
+                    const lastSyncTime = status.lastSync ? new Date(status.lastSync) : null;
+                    const syncInterval = extension_settings[MODULE_NAME].syncInterval || 1800; // Default 30 minutes
+                    const now = new Date();
+                    
+                    // If we have a last sync time and enough time has passed
+                    if (lastSyncTime) {
+                        const timeSinceSync = (now.getTime() - lastSyncTime.getTime()) / 1000; // in seconds
+                        console.log('Character Distributor UI: Time since last sync:', Math.floor(timeSinceSync), 'seconds');
+                        console.log('Character Distributor UI: Sync interval:', syncInterval, 'seconds');
+                        
+                        // If more time has passed than the sync interval, trigger a sync
+                        if (timeSinceSync >= syncInterval) {
+                            console.log('Character Distributor UI: Auto-sync interval reached, triggering sync');
+                            // Add a small delay to ensure status update completes first
+                            setTimeout(() => triggerSync(), 1000);
+                        } else {
+                            console.log('Character Distributor UI: Not yet time for auto-sync. Next sync in:', 
+                                Math.floor(syncInterval - timeSinceSync), 'seconds');
+                        }
+                    } else {
+                        // No last sync time found, trigger a sync if authenticated
+                        console.log('Character Distributor UI: No last sync time found, triggering initial sync');
+                        setTimeout(() => triggerSync(), 1000);
+                    }
+                } else {
+                    console.log('Character Distributor UI: Auto-sync disabled or not authenticated');
                 }
                 
                 return status; // Return the status for potential further processing
