@@ -891,159 +891,97 @@ async function checkServerStatus() {
     console.log('Character Distributor UI: Checking server status...');
     
     try {
-        // Add a timeout to the fetch to prevent hanging if server is not responding
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-        
-        try {
-            const response = await fetch('/api/plugins/character-distributor/status', {
-                headers: getRequestHeaders(),
-                signal: controller.signal
-            });
+        const response = await fetch('/api/plugins/character-distributor/status', {
+            method: 'GET',
+            headers: getRequestHeaders()
+        });
+
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const status = await response.json();
+
+        // Check if auto-sync should be triggered
+        if (extension_settings[MODULE_NAME].autoSync && status.authenticated) {
+            const lastSyncTime = status.lastSync ? new Date(status.lastSync) : null;
+            const syncInterval = extension_settings[MODULE_NAME].syncInterval || 1800;
+            const now = new Date();
             
-            // Clear the timeout since the request completed
-            clearTimeout(timeoutId);
-            
-            if (response.ok) {
-                const status = await response.json();
-                console.log('Character Distributor UI: Server status', status);
+            if (lastSyncTime) {
+                const timeSinceSync = (now.getTime() - lastSyncTime.getTime()) / 1000;
+                console.log('Character Distributor UI: Time since last sync:', Math.floor(timeSinceSync), 'seconds');
+                console.log('Character Distributor UI: Sync interval:', syncInterval, 'seconds');
                 
-                // Add more detailed logging
-                console.log('Character Distributor UI: Server running:', status.running);
-                console.log('Character Distributor UI: Authentication status:', status.authenticated);
-                console.log('Character Distributor UI: Last sync:', status.lastSync);
-                console.log('Character Distributor UI: Shared characters:', status.sharedCharacters);
-                
-                updateServerStatus(status);
-                
-                // Update the auth status display based on the response
-                if (status.hasOwnProperty('authenticated')) {
-                    $('#auth_status').text(status.authenticated ? 'Authenticated' : 'Not authenticated');
-                    if (status.authenticated) {
-                        $('#auth_status').addClass('success').removeClass('error');
-                    } else {
-                        $('#auth_status').removeClass('success error');
-                    }
-                }
-                
-                // Check if auto-sync should be triggered
-                if (extension_settings[MODULE_NAME].autoSync && status.authenticated) {
-                    const lastSyncTime = status.lastSync ? new Date(status.lastSync) : null;
-                    const syncInterval = extension_settings[MODULE_NAME].syncInterval || 1800; // Default 30 minutes
-                    const now = new Date();
-                    
-                    // If we have a last sync time and enough time has passed
-                    if (lastSyncTime) {
-                        const timeSinceSync = (now.getTime() - lastSyncTime.getTime()) / 1000; // in seconds
-                        console.log('Character Distributor UI: Time since last sync:', Math.floor(timeSinceSync), 'seconds');
-                        console.log('Character Distributor UI: Sync interval:', syncInterval, 'seconds');
-                        
-                        // If more time has passed than the sync interval, trigger a sync
-                        if (timeSinceSync >= syncInterval) {
-                            console.log('Character Distributor UI: Auto-sync interval reached, triggering sync');
-                            // Add a small delay to ensure status update completes first
-                            setTimeout(() => triggerSync(), 1000);
-                        } else {
-                            console.log('Character Distributor UI: Not yet time for auto-sync. Next sync in:', 
-                                Math.floor(syncInterval - timeSinceSync), 'seconds');
-                        }
-                    } else {
-                        // No last sync time found, trigger a sync if authenticated
-                        console.log('Character Distributor UI: No last sync time found, triggering initial sync');
-                        setTimeout(() => triggerSync(), 1000);
-                    }
+                if (timeSinceSync >= syncInterval) {
+                    console.log('Character Distributor UI: Auto-sync interval reached, triggering sync');
+                    await triggerSync();
                 } else {
-                    console.log('Character Distributor UI: Auto-sync disabled or not authenticated');
+                    console.log('Character Distributor UI: Not yet time for auto-sync. Next sync in:', 
+                        Math.floor(syncInterval - timeSinceSync), 'seconds');
                 }
-                
-                return status; // Return the status for potential further processing
-            } else {
-                console.error(`Character Distributor UI: Server status check failed with status ${response.status}`);
-                
-                // Try to get more details from the response
-                try {
-                    const errorText = await response.text();
-                    console.error('Character Distributor UI: Error details:', errorText);
-                } catch (textError) {
-                    console.error('Character Distributor UI: Could not read error details');
-                }
-                
-                updateServerStatus({ running: false });
-                return { running: false };
-            }
-        } catch (fetchError) {
-            // Make sure to clear the timeout to prevent memory leaks
-            clearTimeout(timeoutId);
-            
-            // Handle different error types
-            if (fetchError.name === 'AbortError') {
-                console.error('Character Distributor UI: Server status check timed out after 5 seconds');
-                updateServerStatus({ running: false, timedOut: true });
-                return { running: false, timedOut: true };
-            } else {
-                throw fetchError; // Re-throw for the outer catch
+            } else if (status.authenticated) {
+                // No last sync time found, trigger initial sync
+                console.log('Character Distributor UI: No last sync time found, triggering initial sync');
+                await triggerSync();
             }
         }
+
+        updateServerStatus(status);
     } catch (error) {
-        console.error('Character Distributor UI: Error checking server status:', error.message);
-        console.error(error);
+        console.error('Character Distributor UI: Error checking server status:', error);
         updateServerStatus({ running: false, error: error.message });
-        return { running: false, error: error.message };
     }
 }
 
 // Update server status in UI
 function updateServerStatus(status) {
-    const serverStatusElement = $('#server_status');
+    const statusElement = $('#server_status');
+    const syncStatusElement = $('#sync_status');
+    const lastSyncElement = $('#last_sync');
+    const sharedCountElement = $('#shared_count');
     
     if (status.running) {
-        serverStatusElement.text('Server plugin: Running');
-        serverStatusElement.addClass('success').removeClass('error');
-        $('#last_sync').text(`Last sync: ${status.lastSync || 'Never'}`);
-        $('#shared_characters').text(`Shared characters: ${status.sharedCharacters || 0}`);
-        
-        // Update auth status if available
-        if (status.hasOwnProperty('authenticated')) {
-            $('#auth_status').text(status.authenticated ? 'Authenticated' : 'Not authenticated');
-            if (status.authenticated) {
-                $('#auth_status').addClass('success').removeClass('error');
-            } else {
-                $('#auth_status').removeClass('success error');
-            }
-        }
+        statusElement.text('Running').addClass('success').removeClass('error');
     } else {
-        let statusText = 'Server plugin: Not running';
-        
-        // Add more details if available
-        if (status.timedOut) {
-            statusText = 'Server plugin: Not responding (timeout)';
-        } else if (status.error) {
-            statusText = `Server plugin: Error (${status.error})`;
-        }
-        
-        serverStatusElement.text(statusText);
-        serverStatusElement.addClass('error').removeClass('success');
-        
-        // Clear other status displays
-        $('#last_sync').text('Last sync: N/A');
-        $('#shared_characters').text('Shared characters: 0');
-        $('#auth_status').text('Authentication status unknown');
-        $('#auth_status').removeClass('success error');
-        
-        // Show a diagnostic helper message if this is likely a first-time setup
-        if (!localStorage.getItem('character_distributor_shown_setup_help')) {
-            setTimeout(() => {
-                toastr.info(
-                    'If this is your first time using Character Distributor, make sure you have installed and activated the server plugin.<br><br>' +
-                    'The server plugin must be installed separately from the UI extension.<br><br>' +
-                    'Check the README.md file for installation instructions.',
-                    'Server Plugin Not Detected',
-                    { timeOut: 15000, extendedTimeOut: 5000, closeButton: true, tapToDismiss: true }
-                );
-                localStorage.setItem('character_distributor_shown_setup_help', 'true');
-            }, 2000);
-        }
+        statusElement.text('Not Running').removeClass('success error');
     }
+    
+    // Update sync status details
+    if (status.lastSync) {
+        const lastSyncDate = new Date(status.lastSync);
+        lastSyncElement.text(lastSyncDate.toLocaleString());
+    } else {
+        lastSyncElement.text('Never');
+    }
+    
+    // Update shared characters count
+    sharedCountElement.text(status.sharedCharacters || 0);
+    
+    // Show auto-sync info if enabled
+    if (extension_settings[MODULE_NAME].autoSync) {
+        const nextSyncInfo = calculateNextSyncTime(status.lastSync);
+        $('#auto_sync_info').show().text(`Next auto-sync in ${nextSyncInfo}`);
+    } else {
+        $('#auto_sync_info').hide();
+    }
+}
+
+// Calculate time until next sync
+function calculateNextSyncTime(lastSync) {
+    if (!lastSync) return 'calculating...';
+    
+    const now = new Date();
+    const lastSyncTime = new Date(lastSync);
+    const syncInterval = extension_settings[MODULE_NAME].syncInterval || 1800;
+    const nextSyncTime = new Date(lastSyncTime.getTime() + (syncInterval * 1000));
+    const timeUntilSync = nextSyncTime.getTime() - now.getTime();
+    
+    if (timeUntilSync <= 0) {
+        return 'due now';
+    }
+    
+    // Format the remaining time
+    const minutes = Math.floor(timeUntilSync / 60000);
+    const seconds = Math.floor((timeUntilSync % 60000) / 1000);
+    return `${minutes}m ${seconds}s`;
 }
 
 // Update sync status in UI
