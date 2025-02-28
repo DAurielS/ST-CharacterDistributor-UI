@@ -89,6 +89,9 @@ function loadSettings() {
     
     // Check server status to update UI with auth status
     checkServerStatus();
+
+    // Return the settings object
+    return extension_settings[MODULE_NAME];
 }
 
 // Save settings from UI inputs
@@ -449,10 +452,14 @@ async function initializeUI() {
 jQuery(async () => {
     await initializeUI();
     
+    // Get the sync interval from settings (default to 5 minutes if not set)
+    const settings = await loadSettings();
+    const syncIntervalSeconds = settings?.syncInterval || 300;
+    console.log('Character Distributor UI: Setting up status check with interval:', syncIntervalSeconds, 'seconds');
+    
     // Set up refresh interval for server status check (and auto-sync)
-    // Check every 5 minutes instead of every minute to reduce unnecessary requests
-    // The auto-sync logic in checkServerStatus will handle proper timing
-    setInterval(checkServerStatus, 5 * 60 * 1000); 
+    // Use the same interval as the sync setting to ensure timely syncs
+    setInterval(checkServerStatus, syncIntervalSeconds * 1000);
 
     // Also do an immediate status check after a short delay to verify initial state
     setTimeout(checkServerStatus, 10000);
