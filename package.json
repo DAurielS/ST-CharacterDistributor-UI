@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "description": "UI Extension for Character Distributor for SillyTavern",
   "private": true,
+  "type": "module",
   "scripts": {},
   "author": "MonGauss",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^9.23.0"
+  }
 }

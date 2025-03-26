@@ -1,0 +1,51 @@
+// Main application module for Character Distributor UI
+// This will be imported by index.js which remains the entry point
+
+import { getSettings, saveSettings } from './utils/settings.js';
+import { 
+    checkServerStatus, 
+    triggerSync, 
+    generateShareLink,
+    checkDiagnostics,
+    calculateNextSyncTime 
+} from './api/serverApi.js';
+import { 
+    refreshAuthStatus, 
+    authenticateWithDropbox, 
+    logoutFromDropbox, 
+    sendTokenToServer 
+} from './auth/authApi.js';
+import { 
+    getCharacterTags, 
+    characterHasExcludedTags, 
+    filterCharactersByTags,
+    loadCharacterList,
+    refreshCharacterList 
+} from './characters/characterUtils.js';
+
+// Export all functions to be used in index.js
+export {
+    // Settings utilities
+    getSettings,
+    saveSettings,
+    
+    // Server API utilities
+    checkServerStatus,
+    triggerSync,
+    generateShareLink,
+    checkDiagnostics,
+    calculateNextSyncTime,
+    
+    // Authentication utilities
+    refreshAuthStatus,
+    authenticateWithDropbox,
+    logoutFromDropbox,
+    sendTokenToServer,
+    
+    // Character utilities
+    getCharacterTags,
+    characterHasExcludedTags,
+    filterCharactersByTags,
+    loadCharacterList,
+    refreshCharacterList
+}; 
