@@ -76,6 +76,20 @@ npm run build
 
 The built extension will be available in the `dist` directory.
 
+## Code Structure
+
+The codebase has been refactored following the Single Responsibility Principle to improve maintainability:
+
+- **index.js**: Main entry point required by SillyTavern's extension system
+- **settings.html**: UI definition loaded automatically by SillyTavern
+- **src/main.js**: Central module that imports and re-exports all functionality 
+- **src/utils/settings.js**: Settings management utilities
+- **src/api/serverApi.js**: Server communication functions
+- **src/auth/authApi.js**: Authentication-related functions
+- **src/characters/characterUtils.js**: Character management utilities
+
+This modular structure makes the codebase easier to maintain and extend while maintaining compatibility with SillyTavern's extension system.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

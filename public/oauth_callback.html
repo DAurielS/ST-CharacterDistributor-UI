@@ -81,7 +81,7 @@
             Processing authentication... 
             <div class="spinner"></div>
         </div>
-        <p>This window will automatically close in <span id="countdown">30</span> seconds.</p>
+        <p>This window will automatically close in <span id="countdown">5</span> seconds.</p>
         <div id="token-info"></div>
         <div id="guidance"></div>
     </div>
@@ -135,45 +135,9 @@
             const tokenInfoElement = document.getElementById('token-info');
             const guidanceElement = document.getElementById('guidance');
             
-            let countdown = 30; // Longer countdown to give user more time to read messages
+            let countdown = 5; // Shorter countdown for better UX
             let autoClose = true;
             let isSuccess = false;
-            let communicated = false;
-            
-            // For additional debugging, check if we have access to the parent window
-            if (window.opener) {
-                console.log('Parent window reference exists');
-                
-                try {
-                    // Just test if we can access the parent window at all
-                    const location = window.opener.location.href;
-                    console.log('Can access parent window location:', location);
-                } catch (e) {
-                    console.warn('Cannot access parent window location due to security restrictions:', e.message);
-                }
-            } else {
-                console.warn('No parent window reference available - callback was likely opened in a new tab');
-            }
-            
-            // Log sessionStorage and localStorage for debugging
-            try {
-                console.log('sessionStorage items:', Object.keys(sessionStorage).length);
-                console.log('localStorage items:', Object.keys(localStorage).length);
-                
-                if (sessionStorage.getItem('dropbox_code_verifier')) {
-                    console.log('Code verifier exists in sessionStorage');
-                } else {
-                    console.warn('No code verifier in sessionStorage');
-                }
-                
-                if (sessionStorage.getItem('dropbox_app_key')) {
-                    console.log('App key exists in sessionStorage');
-                } else {
-                    console.warn('No app key in sessionStorage');
-                }
-            } catch (e) {
-                console.warn('Error accessing storage:', e);
-            }
             
             // Process the authorization code
             if (code) {
@@ -274,57 +238,7 @@
                 console.log('Handling success');
                 isSuccess = true;
                 
-                // First try to send token back via postMessage
-                if (window.opener && !communicated) {
-                    try {
-                        console.log('Attempting to send token via postMessage');
-                        
-                        // Send message repeatedly a few times to improve reliability
-                        const sendMessage = () => {
-                            try {
-                                window.opener.postMessage({
-                                    source: 'dropbox-auth',
-                                    accessToken: tokenData.access_token,
-                                    tokenType: tokenData.token_type,
-                                    expiresIn: tokenData.expires_in,
-                                    refreshToken: tokenData.refresh_token
-                                }, '*');
-                                console.log('Token sent via postMessage');
-                            } catch (err) {
-                                console.error('Error in postMessage attempt:', err);
-                            }
-                        };
-                        
-                        // Send immediately
-                        sendMessage();
-                        
-                        // And also try a few more times with delay
-                        setTimeout(sendMessage, 300);
-                        setTimeout(sendMessage, 1000);
-                        
-                        communicated = true;
-                        
-                        // Update UI
-                        statusElement.innerHTML = '<span style="color: #00aa00;">✓</span> Authentication successful! You can close this window.';
-                        statusElement.className = 'success';
-                        
-                        // Auto-close window after a short delay
-                        setTimeout(() => {
-                            if (autoClose) {
-                                console.log('Auto-closing window after successful postMessage');
-                                window.close();
-                            }
-                        }, 2000);
-                        
-                        return true;
-                    } catch (postMessageError) {
-                        console.error('Error sending token via postMessage:', postMessageError);
-                    }
-                } else {
-                    console.log(window.opener ? 'Already communicated' : 'No opener window available');
-                }
-                
-                // Fallback to localStorage if postMessage fails or window.opener is unavailable
+                // Store token in localStorage for main application to detect
                 try {
                     console.log('Storing token in localStorage');
                     localStorage.setItem('dropbox_auth_token', tokenData.access_token);
@@ -334,9 +248,11 @@
                     
                     if (tokenData.refresh_token) {
                         localStorage.setItem('dropbox_refresh_token', tokenData.refresh_token);
+                        console.log('Refresh token stored');
                     }
                     
-                    communicated = true;
+                    // Set auth completion flag for polling detection
+                    localStorage.setItem('dropbox_auth_completed', 'true');
                     
                     // Update UI
                     statusElement.innerHTML = '<span style="color: #00aa00;">✓</span> Authentication successful! Token saved.';
@@ -349,18 +265,23 @@
                             <p>The token has been saved to your browser storage.</p>
                             <p>You can close this window and return to SillyTavern.</p>
                             <p>The authentication status should update automatically within a few seconds.</p>
-                            <p>If not, click the "Check Auth Status" button in SillyTavern.</p>
                         </div>
                     `;
                     
                     return true;
                 } catch (storageError) {
                     console.error('Error storing token in localStorage:', storageError);
+                    
+                    // If localStorage fails, show manual copy option
+                    showManualCopyOption(tokenData);
+                    return false;
                 }
-                
-                // If all else fails, display token for manual copy
+            }
+            
+            // Show manual token copy option as fallback
+            function showManualCopyOption(tokenData) {
                 console.log('Displaying token for manual copy');
-                statusElement.innerHTML = 'Authentication successful, but unable to automatically send token.';
+                statusElement.innerHTML = 'Authentication successful, but unable to automatically save token.';
                 statusElement.className = 'success';
                 
                 // Show manual copy UI
@@ -404,8 +325,6 @@
                             this.textContent = 'Failed to copy';
                         });
                 });
-                
-                return false;
             }
             
             // Handle error cases
@@ -415,6 +334,10 @@
                 // Update UI
                 statusElement.innerHTML = `Authentication failed: ${errorMessage}`;
                 statusElement.className = 'error';
+                
+                // Set auth completion flag (with error) for polling detection
+                localStorage.setItem('dropbox_auth_completed', 'true');
+                localStorage.setItem('dropbox_auth_error', errorMessage);
                 
                 // Show guidance
                 guidanceElement.innerHTML = `
@@ -432,20 +355,8 @@
                     </div>
                 `;
                 
+                // Don't auto-close on errors
                 autoClose = false;
-                
-                // Try to notify parent window
-                if (window.opener && !communicated) {
-                    try {
-                        window.opener.postMessage({
-                            source: 'dropbox-auth',
-                            error: errorMessage
-                        }, '*');
-                        communicated = true;
-                    } catch (e) {
-                        console.error('Failed to send error to parent window:', e);
-                    }
-                }
                 
                 return false;
             }
