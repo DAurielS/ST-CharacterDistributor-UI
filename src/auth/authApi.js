@@ -389,6 +389,141 @@ export async function refreshAuthStatus() {
     }
 }
 
+/**
+ * Check localStorage for auth token and restore authentication if available
+ * @returns {Promise<boolean>} Success status
+ */
+export async function checkLocalStorageForToken() {
+    // Check if there's a token in localStorage
+    const accessToken = localStorage.getItem('dropbox_auth_token');
+    const tokenType = localStorage.getItem('dropbox_token_type');
+    const expiresIn = localStorage.getItem('dropbox_expires_in');
+    const timestamp = localStorage.getItem('dropbox_auth_timestamp');
+    const refreshToken = localStorage.getItem('dropbox_refresh_token');
+    
+    console.log('Character Distributor UI: Checking localStorage for token...');
+    console.log('Token exists:', !!accessToken);
+    console.log('Timestamp exists:', !!timestamp);
+    console.log('Token length:', accessToken?.length || 0);
+    console.log('Refresh token exists:', !!refreshToken);
+    
+    // Make sure we have app keys configured before trying to use the token
+    const appKey = $('#dropbox_app_key').val() || extension_settings?.[MODULE_NAME]?.dropboxAppKey;
+    const appSecret = $('#dropbox_app_secret').val() || extension_settings?.[MODULE_NAME]?.dropboxAppSecret;
+    
+    if (!appKey || !appSecret) {
+        console.warn('Character Distributor UI: App Key or Secret not configured. Cannot use saved token.');
+        clearLocalStorageTokens();
+        return false;
+    }
+    
+    // Make sure settings are saved with the current app key/secret
+    if (!extension_settings[MODULE_NAME]) {
+        extension_settings[MODULE_NAME] = {};
+    }
+    extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+    extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
+    saveSettingsDebounced();
+    
+    // Make sure settings are sent to server
+    try {
+        console.log('Character Distributor UI: Sending settings to server before using saved token');
+        await sendSettingsToServer();
+    } catch (error) {
+        console.error('Character Distributor UI: Error sending settings to server:', error);
+        toastr.error('Could not configure server settings', 'Token Restoration Failed');
+        return false;
+    }
+    
+    // If we have a token, try to use it
+    if (accessToken) {
+        console.log('Character Distributor UI: Found token in localStorage, attempting to use it');
+        
+        // Check token age if timestamp exists
+        if (timestamp) {
+            const tokenAge = Date.now() - parseInt(timestamp);
+            const maxAge = 3600000; // 1 hour in milliseconds
+            
+            if (tokenAge > maxAge && !refreshToken) {
+                console.warn(`Character Distributor UI: Token is old (${Math.floor(tokenAge / 60000)} minutes), skipping auto-login`);
+                toastr.info('Found an old saved token but no refresh token. Please re-authenticate.', 'Authentication Needed');
+                return false;
+            }
+        }
+        
+        // Store in authData for use by sendTokenToServer
+        authData = {
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresIn: parseInt(expiresIn || '14400'),
+            tokenType: tokenType || 'bearer'
+        };
+        
+        // Update UI
+        $('#auth_status').text('Restoring saved authentication...');
+        
+        try {
+            // Send token to server
+            await sendTokenToServer();
+            console.log('Character Distributor UI: Successfully restored authentication from localStorage');
+            
+            // Clear tokens from localStorage after successful restoration
+            // This prevents auto-login if the server rejects the token next time
+            clearLocalStorageTokens(); 
+            return true;
+        } catch (error) {
+            console.error('Character Distributor UI: Error sending saved token to server:', error);
+            $('#auth_status').text('Failed to restore authentication').removeClass('success').addClass('error');
+            toastr.error('Could not restore authentication from saved token', 'Authentication Failed');
+            
+            // Clear the invalid saved token
+            clearLocalStorageTokens();
+            return false;
+        }
+    } else {
+        console.log('Character Distributor UI: No saved token found in localStorage');
+        return false;
+    }
+}
+
+/**
+ * Clear tokens from localStorage
+ * @returns {boolean} Success status
+ */
+export function clearLocalStorageTokens() {
+    try {
+        console.log('Character Distributor UI: Clearing auth tokens from localStorage');
+        
+        // Get current values for logging
+        const hadToken = !!localStorage.getItem('dropbox_auth_token');
+        const hadRefreshToken = !!localStorage.getItem('dropbox_refresh_token');
+        
+        // Remove all token-related items
+        localStorage.removeItem('dropbox_auth_token');
+        localStorage.removeItem('dropbox_token_type');
+        localStorage.removeItem('dropbox_expires_in');
+        localStorage.removeItem('dropbox_auth_timestamp');
+        localStorage.removeItem('dropbox_refresh_token');
+        
+        // Verify removal was successful
+        const tokenRemoved = !localStorage.getItem('dropbox_auth_token');
+        const refreshTokenRemoved = !localStorage.getItem('dropbox_refresh_token');
+        
+        if (!tokenRemoved || !refreshTokenRemoved) {
+            console.error('Character Distributor UI: Failed to remove all tokens from localStorage');
+            return false;
+        }
+        
+        console.log('Character Distributor UI: Auth tokens cleared from localStorage');
+        console.log('Character Distributor UI: Removed access token:', hadToken);
+        console.log('Character Distributor UI: Removed refresh token:', hadRefreshToken);
+        return true;
+    } catch (error) {
+        console.error('Character Distributor UI: Error clearing auth tokens from localStorage:', error);
+        return false;
+    }
+}
+
 // Helper function to store authentication token in localStorage for persistence
 function storeAuthToken(accessToken, tokenType, expiresIn, refreshToken) {
     try {

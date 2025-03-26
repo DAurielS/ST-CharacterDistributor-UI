@@ -6,8 +6,5 @@
   "type": "module",
   "scripts": {},
   "author": "MonGauss",
-  "license": "MIT",
-  "devDependencies": {
-    "eslint": "^9.23.0"
-  }
+  "license": "MIT"
 }
