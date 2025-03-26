@@ -1,54 +1,133 @@
 // Authentication API module for Character Distributor UI
 // Contains functions for authentication with Dropbox
 
-import { getRequestHeaders } from "../../../../../../script.js";
+import { getRequestHeaders, saveSettingsDebounced } from "../../../../../../script.js";
 import { extension_settings } from "../../../../../extensions.js";
+import { sendSettingsToServer } from "../api/serverApi.js";
+
+// Add a global variable to store the current authorization details with refresh token support
+let authData = {
+    accessToken: null,
+    refreshToken: null,
+    expiresIn: null,
+    tokenType: null
+};
 
 /**
- * Authenticate with Dropbox via OAuth
+ * Authenticate with Dropbox via OAuth using PKCE flow
  * @returns {Promise<void>}
  */
 export async function authenticateWithDropbox() {
-    console.log('Character Distributor UI: Initiating Dropbox authentication');
-    
     try {
+        console.log('Character Distributor UI: Starting Dropbox authentication');
+        
+        // Clear any previous auth data
+        authData = {
+            accessToken: null,
+            refreshToken: null,
+            expiresIn: null,
+            tokenType: null
+        };
+        
+        // Update UI to show auth in progress
+        $('#auth_status').text('Authentication in progress...');
+        
         // Get app key from settings
-        const settings = extension_settings?.character_distributor || {};
-        const appKey = settings.dropboxAppKey;
+        const appKey = $('#dropbox_app_key').val();
+        const appSecret = $('#dropbox_app_secret').val();
         
         if (!appKey) {
-            $('#auth_status').text('Authentication failed: No App Key configured').removeClass('success').addClass('error');
-            toastr.error('Please configure your Dropbox App Key in settings', 'Configuration Error');
+            toastr.error('App Key must be configured before authenticating', 'Authentication Error');
+            console.error('Character Distributor UI: Missing Dropbox App Key');
+            $('#auth_status').text('Not authenticated').removeClass('success').addClass('error');
             return;
         }
         
-        // Set up the OAuth flow
-        const redirectUri = encodeURIComponent(window.location.origin + '/oauth_callback.html');
-        const state = Math.random().toString(36).substring(2);
+        if (!appSecret) {
+            toastr.error('App Secret must be configured before authenticating', 'Authentication Error');
+            console.error('Character Distributor UI: Missing Dropbox App Secret');
+            $('#auth_status').text('Not authenticated').removeClass('success').addClass('error');
+            return;
+        }
         
-        // Store state for verification
-        localStorage.setItem('dropbox_auth_state', state);
+        // Save the settings before continuing
+        extension_settings.character_distributor = extension_settings.character_distributor || {};
+        extension_settings.character_distributor.dropboxAppKey = appKey;
+        extension_settings.character_distributor.dropboxAppSecret = appSecret;
+        saveSettingsDebounced();
         
-        // Construct OAuth URL
-        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${encodeURIComponent(appKey)}&response_type=token&redirect_uri=${redirectUri}&state=${state}`;
+        console.log('Character Distributor UI: Saved app key and secret to settings');
+        console.log('Character Distributor UI: App Key length:', appKey.length);
+        console.log('Character Distributor UI: App Secret length:', appSecret.length);
         
-        // Track auth attempt start time
-        localStorage.setItem('dropbox_auth_started', Date.now().toString());
+        // Ensure settings are sent to server before proceeding
+        await sendSettingsToServer();
         
-        // Update UI to show authentication in progress
-        $('#auth_status').text('Authentication in progress...');
+        // Generate a code verifier and challenge for PKCE (improved security over implicit flow)
+        // The verifier is a random string that must be kept secret
+        // The challenge is derived from the verifier using a one-way function (SHA-256)
+        const codeVerifier = generateCodeVerifier();
+        const codeChallenge = await generateCodeChallenge(codeVerifier);
         
-        // Open popup window for authentication
-        const authWindow = window.open(authUrl, 'DropboxAuth', 'width=800,height=600');
+        // Store code verifier in sessionStorage as a backup
+        // However, since sessionStorage is not shared between browser contexts,
+        // we'll also pass it through the state parameter
+        sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
+        console.log('Character Distributor UI: Stored code verifier in sessionStorage');
+        
+        // PKCE Flow:
+        // 1. We generate a random code verifier and a derived code challenge 
+        // 2. We send the challenge (but not the verifier) to the authorization server
+        // 3. The authorization server returns a code to the redirect URI
+        // 4. We use the original verifier and the code to request an access token
+        // 5. The server validates that the verifier matches the challenge it received
+        
+        // Create a callback URL with state parameter that contains the code verifier
+        // We cannot modify the redirect URI after Dropbox sets it, but we can add a state parameter
+        // that will be preserved in the redirect
+        const baseRedirectUri = window.location.origin + '/scripts/extensions/third-party/ST-CharacterDistributor-UI/public/oauth_callback.html';
+        
+        // Add the code verifier as a state parameter - this will be preserved in the redirect
+        // Will be returned as ?state=... in the callback
+        const state = btoa(JSON.stringify({cv: codeVerifier}));
+        console.log('Character Distributor UI: Generated state with embedded code verifier');
+        
+        // The authorization URL includes state which will be passed back to the callback
+        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${appKey}&response_type=code&redirect_uri=${encodeURIComponent(baseRedirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&token_access_type=offline&state=${encodeURIComponent(state)}`; // Request refresh token with offline access
+        console.log('Character Distributor UI: Authorization URL length:', authUrl.length);
+        
+        // Store the app key and code verifier in sessionStorage for the callback page to use
+        sessionStorage.setItem('dropbox_app_key', appKey);
+        // We still store it in sessionStorage as a backup
+        sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
+        
+        // Open the authorization URL in a new tab/window
+        const authWindow = window.open(authUrl, '_blank', 'width=800,height=600');
         
         if (!authWindow) {
-            toastr.error('Pop-up blocked. Please allow pop-ups for this site and try again.', 'Authentication Error');
-            $('#auth_status').text('Authentication failed: Pop-up blocked').removeClass('success').addClass('error');
+            console.error('Character Distributor UI: Failed to open auth window - popup blocked?');
+            toastr.error('Failed to open authentication window. Please allow popups for this site.', 'Authentication Error');
+            $('#auth_status').text('Authentication failed - popup blocked').removeClass('success').addClass('error');
+            return;
         }
+        
+        console.log('Character Distributor UI: Opened auth window, waiting for response via postMessage');
+        // We're now relying on the postMessage communication or localStorage fallback
+        // with the callback page rather than polling, which was unreliable
+        
+        // Set a reasonable timeout for the overall process (3 minutes)
+        setTimeout(() => {
+            // Only show timeout message if we're still in the "Authentication in progress" state
+            if ($('#auth_status').text() === 'Authentication in progress...') {
+                console.warn('Character Distributor UI: Auth process timed out after 3 minutes');
+                $('#auth_status').text('Authentication timed out').removeClass('success').addClass('error');
+                toastr.warning('Authentication process timed out after 3 minutes', 'Authentication Timeout');
+            }
+        }, 180000);
     } catch (error) {
-        console.error('Character Distributor UI: Error initiating Dropbox authentication:', error);
-        $('#auth_status').text(`Authentication failed: ${error.message || 'Unknown error'}`).removeClass('success').addClass('error');
-        toastr.error(`Error: ${error.message || 'Unknown error'}`, 'Authentication Failed');
+        console.error('Character Distributor UI: Authentication error', error);
+        $('#auth_status').text('Authentication error').removeClass('success').addClass('error');
+        toastr.error(`Error during authentication process: ${error.message}`, 'Authentication Failed');
     }
 }
 
@@ -81,18 +160,21 @@ export async function logoutFromDropbox() {
 
 /**
  * Send a token to the server for Dropbox authentication
- * @param {Object} authData - Authentication data
+ * @param {Object} [tokenData] - Authentication data (optional, will use global authData if not provided)
  * @returns {Promise<boolean>} Success status
  */
-export async function sendTokenToServer(authData) {
+export async function sendTokenToServer(tokenData) {
     try {
         console.log('Character Distributor UI: Sending token to server');
         
         // Update UI to show token being sent
         $('#auth_status').text('Sending token to server...');
         
+        // Use provided token data or global authData
+        const authDataToUse = tokenData || authData;
+        
         // Validate authData
-        if (!authData || !authData.accessToken) {
+        if (!authDataToUse || !authDataToUse.accessToken) {
             console.error('Character Distributor UI: No valid token data available');
             $('#auth_status').text('Authentication failed: No valid token').removeClass('success').addClass('error');
             toastr.error('No valid authentication token available', 'Authentication Failed');
@@ -101,17 +183,50 @@ export async function sendTokenToServer(authData) {
         
         // Prepare the request
         const requestBody = {
-            accessToken: authData.accessToken,
-            tokenType: authData.tokenType || 'bearer',
-            expiresIn: authData.expiresIn || 14400,
-            refreshToken: authData.refreshToken
+            accessToken: authDataToUse.accessToken,
+            tokenType: authDataToUse.tokenType || 'bearer',
+            expiresIn: authDataToUse.expiresIn || 14400,
+            refreshToken: authDataToUse.refreshToken
         };
         
         // Log sanitized details
-        console.log('Character Distributor UI: Token length:', authData.accessToken?.length || 0);
-        console.log('Character Distributor UI: Token type:', authData.tokenType || 'bearer');
-        console.log('Character Distributor UI: Expires in:', authData.expiresIn || 14400);
-        console.log('Character Distributor UI: Refresh token provided:', !!authData.refreshToken);
+        console.log('Character Distributor UI: Token length:', authDataToUse.accessToken?.length || 0);
+        console.log('Character Distributor UI: Token type:', authDataToUse.tokenType || 'bearer');
+        console.log('Character Distributor UI: Expires in:', authDataToUse.expiresIn || 14400);
+        console.log('Character Distributor UI: Refresh token provided:', !!authDataToUse.refreshToken);
+        
+        // Check if the app keys are set in the UI/settings
+        const appKey = $('#dropbox_app_key').val() || extension_settings.character_distributor?.dropboxAppKey;
+        const appSecret = $('#dropbox_app_secret').val() || extension_settings.character_distributor?.dropboxAppSecret;
+        
+        if (!appKey || !appSecret) {
+            console.error('Character Distributor UI: App key or secret is missing');
+            $('#auth_status').text('Authentication failed: Missing app credentials').removeClass('success').addClass('error');
+            toastr.error('Dropbox App Key and Secret must be configured', 'Authentication Failed');
+            return false;
+        }
+        
+        // Ensure settings are saved and sent to server before proceeding
+        extension_settings.character_distributor = extension_settings.character_distributor || {};
+        extension_settings.character_distributor.dropboxAppKey = appKey;
+        extension_settings.character_distributor.dropboxAppSecret = appSecret;
+        saveSettingsDebounced();
+        
+        try {
+            console.log('Character Distributor UI: Sending settings to server before authentication');
+            const settingsSent = await sendSettingsToServer();
+            if (!settingsSent) {
+                console.error('Character Distributor UI: Failed to send settings to server');
+                $('#auth_status').text('Authentication failed: Could not configure server').removeClass('success').addClass('error');
+                toastr.error('Failed to send app credentials to server', 'Authentication Failed');
+                return false;
+            }
+        } catch (settingsError) {
+            console.error('Character Distributor UI: Error sending settings to server:', settingsError);
+            $('#auth_status').text('Authentication failed: Configuration error').removeClass('success').addClass('error');
+            toastr.error('Error configuring server with app credentials', 'Authentication Failed');
+            return false;
+        }
         
         // Get headers and ensure content type is set
         const headers = {
@@ -155,6 +270,12 @@ export async function sendTokenToServer(authData) {
                     console.log('Character Distributor UI: Token sent successfully');
                     $('#auth_status').text('Authenticated').addClass('success').removeClass('error');
                     toastr.success('Successfully authenticated with Dropbox');
+                    
+                    // Store the token in localStorage for persistence
+                    storeAuthToken(authDataToUse.accessToken, authDataToUse.tokenType, authDataToUse.expiresIn, authDataToUse.refreshToken);
+                    
+                    // Check server status after a short delay to confirm
+                    setTimeout(refreshAuthStatus, 2000);
                     return true;
                 } else {
                     console.error('Character Distributor UI: Server returned success=false:', data.error);
@@ -244,6 +365,11 @@ export async function refreshAuthStatus() {
                 toastr.info('Not authenticated with Dropbox');
             }
             
+            // Update the server status UI
+            if (typeof updateServerStatus === 'function') {
+                updateServerStatus(status);
+            }
+            
             return status;
         } else {
             console.error('Character Distributor UI: Auth status check failed');
@@ -256,5 +382,143 @@ export async function refreshAuthStatus() {
         return null;
     } finally {
         $('#refresh_auth_status').prop('disabled', false);
+    }
+}
+
+// Helper function to store authentication token in localStorage for persistence
+function storeAuthToken(accessToken, tokenType, expiresIn, refreshToken) {
+    try {
+        console.log('Character Distributor UI: Storing auth token in localStorage');
+        
+        // Validate parameters
+        if (!accessToken) {
+            console.error('Character Distributor UI: Cannot store null/empty token');
+            return false;
+        }
+        
+        if (typeof accessToken !== 'string') {
+            console.error('Character Distributor UI: Token must be a string, got:', typeof accessToken);
+            return false;
+        }
+        
+        if (accessToken.length < 10) {
+            console.warn('Character Distributor UI: Token is suspiciously short:', accessToken.length, 'chars');
+        }
+        
+        // Store the token with clean values
+        localStorage.setItem('dropbox_auth_token', accessToken);
+        localStorage.setItem('dropbox_token_type', tokenType || 'bearer');
+        localStorage.setItem('dropbox_expires_in', String(expiresIn || 14400));
+        localStorage.setItem('dropbox_auth_timestamp', Date.now().toString());
+        
+        // Only store refresh token if it exists and is a string
+        if (refreshToken && typeof refreshToken === 'string') {
+            localStorage.setItem('dropbox_refresh_token', refreshToken);
+            console.log('Character Distributor UI: Refresh token stored (length:', refreshToken.length, ')');
+        } else if (refreshToken) {
+            console.warn('Character Distributor UI: Invalid refresh token format, not storing');
+        }
+        
+        // Verify storage was successful
+        const storedToken = localStorage.getItem('dropbox_auth_token');
+        if (storedToken !== accessToken) {
+            console.error('Character Distributor UI: Token storage verification failed');
+            return false;
+        }
+        
+        console.log('Character Distributor UI: Auth token stored in localStorage successfully');
+        console.log('Character Distributor UI: Token expiration set to:', new Date(Date.now() + (parseInt(expiresIn || '14400') * 1000)).toISOString());
+        return true;
+    } catch (error) {
+        console.error('Character Distributor UI: Error storing auth token in localStorage:', error);
+        return false;
+    }
+}
+
+// Generate a code verifier for PKCE
+function generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    window.crypto.getRandomValues(array);
+    return Array.from(array, dec => ('0' + dec.toString(16)).slice(-2)).join('');
+}
+
+// Generate a code challenge from code verifier
+async function generateCodeChallenge(verifier) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const hash = await window.crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(hash)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
+
+// Exchange authorization code for access and refresh tokens
+export async function exchangeCodeForToken(code, appKey, redirectUri) {
+    try {
+        console.log('Character Distributor UI: Exchanging authorization code for tokens');
+        
+        // Get the code verifier from sessionStorage
+        const codeVerifier = sessionStorage.getItem('dropbox_code_verifier');
+        
+        if (!codeVerifier) {
+            console.error('Character Distributor UI: No code verifier found');
+            $('#auth_status').text('Authentication failed').removeClass('success').addClass('error');
+            toastr.error('Authentication session expired or invalid', 'Authentication Failed');
+            return;
+        }
+        
+        // Prepare the token request
+        const tokenRequestBody = new URLSearchParams();
+        tokenRequestBody.append('code', code);
+        tokenRequestBody.append('grant_type', 'authorization_code');
+        tokenRequestBody.append('client_id', appKey);
+        tokenRequestBody.append('redirect_uri', redirectUri);
+        tokenRequestBody.append('code_verifier', codeVerifier);
+        
+        // Make the token request to Dropbox
+        const tokenResponse = await fetch('https://api.dropboxapi.com/oauth2/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: tokenRequestBody.toString()
+        });
+        
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            console.error('Character Distributor UI: Token request failed', tokenResponse.status, errorText);
+            $('#auth_status').text('Token request failed').removeClass('success').addClass('error');
+            toastr.error(`Token request failed: ${tokenResponse.status}`, 'Authentication Failed');
+            return;
+        }
+        
+        // Parse the token response
+        const tokenData = await tokenResponse.json();
+        
+        if (!tokenData.access_token) {
+            console.error('Character Distributor UI: No access token in response', tokenData);
+            $('#auth_status').text('No access token received').removeClass('success').addClass('error');
+            toastr.error('No access token received from Dropbox', 'Authentication Failed');
+            return;
+        }
+        
+        console.log('Character Distributor UI: Received access token');
+        console.log('Character Distributor UI: Refresh token received:', !!tokenData.refresh_token);
+        
+        // Store the tokens
+        authData = {
+            accessToken: tokenData.access_token,
+            refreshToken: tokenData.refresh_token || null,
+            expiresIn: tokenData.expires_in || 14400, // Default to 4 hours if not provided
+            tokenType: tokenData.token_type || 'bearer'
+        };
+        
+        // Send the tokens to the server plugin
+        await sendTokenToServer();
+    } catch (error) {
+        console.error('Character Distributor UI: Error exchanging code for token', error);
+        $('#auth_status').text('Token exchange error').removeClass('success').addClass('error');
+        toastr.error('Error exchanging authorization code for access token', 'Authentication Failed');
     }
 } 

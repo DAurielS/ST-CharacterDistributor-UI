@@ -4,7 +4,7 @@
 
 import {
     // Settings utilities
-    getSettings,
+    loadSettings,
     saveSettings,
     
     // Server API utilities
@@ -59,7 +59,7 @@ jQuery(async () => {
     }
 
     // Load extension settings
-    extension_settings = getSettings();
+    extension_settings = loadSettings();
     
     // Set up event handlers
     setupEventHandlers();

@@ -4,6 +4,7 @@
 import { getRequestHeaders } from "../../../../../../script.js";
 import { MODULE_NAME } from "../utils/settings.js";
 import { extension_settings } from "../../../../../extensions.js";
+import { filterCharactersByTags } from "../characters/characterUtils.js";
 
 /**
  * Check if server plugin is running
@@ -21,9 +22,18 @@ export async function checkServerStatus() {
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const status = await response.json();
 
+        // Check if auto-sync should be triggered
+        if (await checkAutoSync(status)) {
+            await triggerSync();
+        }
+
+        // Update UI with status
+        updateServerStatus(status);
+
         return status;
     } catch (error) {
         console.error('Character Distributor UI: Error checking server status:', error);
+        updateServerStatus({ running: false, error: error.message });
         return { running: false, error: error.message };
     }
 }
@@ -77,13 +87,36 @@ export async function checkDiagnostics() {
 
 /**
  * Trigger synchronization with Dropbox
- * @param {string[]} characterFiles - List of character files to sync
- * @param {string[]} excludedCharacters - List of excluded character files
- * @param {string[]} excludeTags - List of tags to exclude
+ * @param {string[]} [characterFiles] - Optional list of character files to sync
+ * @param {string[]} [excludedCharacters] - Optional list of excluded character files
+ * @param {string[]} [excludeTags] - Optional list of tags to exclude
  * @returns {Promise<Object>} Sync result
  */
 export async function triggerSync(characterFiles, excludedCharacters, excludeTags) {
+    // Update UI to show sync is running
+    $('#sync_status').text('Sync running...');
+    
     try {
+        // If parameters aren't provided, get them from UI and filter characters
+        if (!characterFiles || !excludedCharacters) {
+            // Get excluded tags from settings/UI
+            const tags = excludeTags || $('#exclude_tags').val().split(',').map(tag => tag.trim()).filter(tag => tag);
+            console.log('Character Distributor UI: Excluded tags:', tags);
+            
+            // Filter characters based on SillyTavern tags
+            const result = await filterCharactersByTags(tags);
+            characterFiles = result.characterFiles;
+            excludedCharacters = result.excludedCharacters;
+            
+            // Log detailed information for debugging
+            console.log(`Character Distributor UI: Will share ${characterFiles.length} characters`);
+            console.log(`Character Distributor UI: Will exclude ${excludedCharacters.length} characters due to tags`);
+            
+            if (excludedCharacters.length > 0) {
+                console.log('Character Distributor UI: Excluded characters:', excludedCharacters);
+            }
+        }
+        
         // Get proper request headers and add Content-Type
         const headers = getRequestHeaders();
         headers['Content-Type'] = 'application/json';
@@ -94,7 +127,7 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
             headers: headers,
             body: JSON.stringify({
                 allowedCharacterFiles: characterFiles, // Send list of files that are allowed
-                excludeTags: excludeTags, // Also send excluded tags for secondary filtering
+                excludeTags: excludeTags || $('#exclude_tags').val().split(',').map(tag => tag.trim()).filter(tag => tag), // Also send excluded tags for secondary filtering
                 excludedCharacters: excludedCharacters // Explicitly send the excluded character list
             })
         });
@@ -107,6 +140,16 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
         
         // Log the response for debugging
         console.log('Character Distributor UI: Sync response:', data);
+        
+        // Update UI with sync results
+        const result = {
+            ...data,
+            message: data.success ? 
+                `Synced ${data.count} characters` + (data.removed ? `, removed ${data.removed}` : '') : 
+                'Sync failed'
+        };
+        
+        updateSyncStatus(result);
         
         // Show a toast with more details if available
         if (data.success) {
@@ -121,32 +164,35 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
             toastr.error(data.error || 'Unknown error occurred', 'Sync Failed');
         }
         
-        return {
-            ...data,
-            message: data.success ? 
-                `Synced ${data.count} characters` + (data.removed ? `, removed ${data.removed}` : '') : 
-                'Sync failed'
-        };
+        return result;
     } catch (error) {
         console.error('Character Distributor UI: Error during sync', error);
+        
+        // Update UI for error case
+        const errorResult = { success: false, message: 'Sync failed. Check server logs.' };
+        updateSyncStatus(errorResult);
+        
         toastr.error('Error during sync operation. Check the console for details.');
-        return { success: false, message: 'Sync failed. Check server logs.' };
+        return errorResult;
     }
 }
 
 /**
  * Generate share link for a character
- * @param {string} characterId - Character ID to share
+ * @param {string} [characterId] - Character ID to share (optional, will use selected character from UI if not provided)
  * @returns {Promise<string|null>} Share link or null if failed
  */
 export async function generateShareLink(characterId) {
-    if (!characterId) {
+    // If no characterId provided, get it from the UI
+    const characterToShare = characterId || $('#share_character').val();
+    
+    if (!characterToShare) {
         toastr.error('Please select a character');
         return null;
     }
     
     try {
-        const response = await fetch(`/api/plugins/character-distributor/share/${characterId}`, {
+        const response = await fetch(`/api/plugins/character-distributor/share/${characterToShare}`, {
             headers: getRequestHeaders()
         });
         
@@ -157,6 +203,12 @@ export async function generateShareLink(characterId) {
         const data = await response.json();
         
         if (data.shareLink) {
+            // Update UI if this was called without a specific characterId
+            if (!characterId) {
+                $('#share_link').val(data.shareLink);
+                $('#share_link_container').show();
+            }
+            
             toastr.success('Share link generated');
             return data.shareLink;
         } else {
@@ -173,12 +225,12 @@ export async function generateShareLink(characterId) {
 /**
  * Check if auto-sync should be triggered
  * @param {Object} status - Server status
- * @returns {Promise<boolean>} Whether auto-sync was triggered
+ * @returns {Promise<boolean>} Whether auto-sync should be triggered
  */
 export async function checkAutoSync(status) {
-    if (extension_settings[MODULE_NAME].autoSync && status.authenticated) {
+    if (extension_settings[MODULE_NAME]?.autoSync && status.authenticated) {
         const lastSyncTime = status.lastSync ? new Date(status.lastSync) : null;
-        const syncInterval = extension_settings[MODULE_NAME].syncInterval || 1800;
+        const syncInterval = extension_settings[MODULE_NAME]?.syncInterval || 1800;
         const now = new Date();
         
         if (lastSyncTime) {
@@ -214,7 +266,7 @@ export function calculateNextSyncTime(lastSync) {
     
     const now = new Date();
     const lastSyncTime = new Date(lastSync);
-    const syncInterval = extension_settings[MODULE_NAME].syncInterval || 1800;
+    const syncInterval = extension_settings[MODULE_NAME]?.syncInterval || 1800;
     const nextSyncTime = new Date(lastSyncTime.getTime() + (syncInterval * 1000));
     const timeUntilSync = nextSyncTime.getTime() - now.getTime();
     
@@ -226,4 +278,68 @@ export function calculateNextSyncTime(lastSync) {
     const minutes = Math.floor(timeUntilSync / 60000);
     const seconds = Math.floor((timeUntilSync % 60000) / 1000);
     return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Update server status in UI
+ * @param {Object} status - Server status
+ */
+export function updateServerStatus(status) {
+    const statusElement = $('#server_status');
+    const syncStatusElement = $('#sync_status');
+    const lastSyncElement = $('#last_sync');
+    const sharedCountElement = $('#shared_count');
+    
+    if (status.running) {
+        statusElement.text('Running').addClass('success').removeClass('error');
+    } else {
+        statusElement.text('Not Running').removeClass('success error');
+    }
+    
+    // Update sync status details
+    if (status.lastSync) {
+        const lastSyncDate = new Date(status.lastSync);
+        lastSyncElement.text(lastSyncDate.toLocaleString());
+    } else {
+        lastSyncElement.text('Never');
+    }
+    
+    // Update shared characters count
+    sharedCountElement.text(status.sharedCharacters || 0);
+    
+    // Show auto-sync info if enabled
+    if (extension_settings[MODULE_NAME]?.autoSync) {
+        const nextSyncInfo = calculateNextSyncTime(status.lastSync);
+        $('#auto_sync_info').show().text(`Next auto-sync in ${nextSyncInfo}`);
+    } else {
+        $('#auto_sync_info').hide();
+    }
+}
+
+/**
+ * Update sync status in UI
+ * @param {Object} result - Sync result
+ */
+export function updateSyncStatus(result) {
+    const syncStatusElement = $('#sync_status');
+    const lastSyncElement = $('#last_sync');
+    const sharedCharactersElement = $('#shared_characters');
+    
+    if (result.success) {
+        syncStatusElement.html(`<span style="color: green;">✓ ${result.message || 'Sync completed successfully'}</span>`);
+        lastSyncElement.text(`Last sync: ${new Date().toLocaleString()}`);
+        
+        // If we have a count of shared characters
+        if (result.total !== undefined || result.count !== undefined) {
+            const total = result.total || result.count || 0;
+            sharedCharactersElement.text(`Shared characters: ${total}`);
+            
+            // Add details about removed characters if available
+            if (result.removed !== undefined && result.removed > 0) {
+                sharedCharactersElement.append(`<br><span style="color: orange;">(${result.removed} characters removed due to tag exclusion)</span>`);
+            }
+        }
+    } else {
+        syncStatusElement.html(`<span style="color: red;">✗ ${result.message || 'Sync failed'}</span>`);
+    }
 } 

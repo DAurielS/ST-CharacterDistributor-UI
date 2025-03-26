@@ -1,7 +1,7 @@
 // Main application module for Character Distributor UI
 // This will be imported by index.js which remains the entry point
 
-import { getSettings, saveSettings } from './utils/settings.js';
+import { loadSettings, saveSettings } from './utils/settings.js';
 import { 
     checkServerStatus, 
     triggerSync, 
@@ -26,7 +26,7 @@ import {
 // Export all functions to be used in index.js
 export {
     // Settings utilities
-    getSettings,
+    loadSettings,
     saveSettings,
     
     // Server API utilities
