@@ -29,13 +29,11 @@ import {
 } from './src/main.js';
 
 import { eventSource, getRequestHeaders, getCharacters, saveSettingsDebounced } from "../../../../script.js";
-import { getContext } from "../../../extensions.js";
-import { getTagsList, getTagKeyForEntity, tag_map, tags } from "../../../tags.js";
 import { registerSlashCommand } from "../../../slash-commands.js";
 
 // Extension namespace
-export const MODULE_NAME = 'ST-CharacterDistributor';
-export const extensionFolderPath = `/scripts/extensions/third-party/${MODULE_NAME}-UI`;
+export const MODULE_NAME = 'character_distributor';
+export const extensionFolderPath = `/scripts/extensions/third-party/ST-CharacterDistributor-UI`;
 
 // Storage for extension settings
 export let extension_settings = {};
@@ -47,10 +45,6 @@ let authData = {
     expiresIn: null,
     tokenType: null
 };
-
-// Variables to track loading state
-let isLoadingCharacters = false;
-let characterLoadDebounceTimer = null;
 
 /**
  * Initialize UI components and event handlers

@@ -290,7 +290,7 @@ export function calculateNextSyncTime(lastSync) {
     
     const now = new Date();
     const lastSyncTime = new Date(lastSync);
-    const syncInterval = extension_settings[MODULE_NAME]?.syncInterval || 1800;
+    const syncInterval = extension_settings?.[MODULE_NAME]?.syncInterval || 1800;
     const nextSyncTime = new Date(lastSyncTime.getTime() + (syncInterval * 1000));
     const timeUntilSync = nextSyncTime.getTime() - now.getTime();
     
@@ -332,7 +332,7 @@ export function updateServerStatus(status) {
     sharedCountElement.text(status.sharedCharacters || 0);
     
     // Show auto-sync info if enabled
-    if (extension_settings[MODULE_NAME]?.autoSync) {
+    if (extension_settings?.[MODULE_NAME]?.autoSync) {
         const nextSyncInfo = calculateNextSyncTime(status.lastSync);
         $('#auto_sync_info').show().text(`Next auto-sync in ${nextSyncInfo}`);
     } else {
