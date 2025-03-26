@@ -4,7 +4,7 @@ import { extension_settings } from "../../../../../extensions.js";
 import { saveSettingsDebounced, getRequestHeaders } from "../../../../../../script.js";
 
 // Extension metadata
-export const MODULE_NAME = 'character_distributor';
+export const MODULE_NAME = 'ST-CharacterDistributor-UI';
 export const extensionFolderPath = `/scripts/extensions/third-party/${MODULE_NAME}`;
 
 // Default settings

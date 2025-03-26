@@ -32,7 +32,7 @@ import { eventSource, getRequestHeaders, getCharacters, saveSettingsDebounced } 
 import { registerSlashCommand } from "../../../slash-commands.js";
 
 // Extension namespace
-export const MODULE_NAME = 'character_distributor';
+export const MODULE_NAME = 'ST-CharacterDistributor-UI';
 export const extensionFolderPath = `/scripts/extensions/third-party/ST-CharacterDistributor-UI`;
 
 // Storage for extension settings

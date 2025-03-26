@@ -198,8 +198,8 @@ export async function sendTokenToServer(tokenData) {
         console.log('Character Distributor UI: Refresh token provided:', !!authDataToUse.refreshToken);
         
         // Check if the app keys are set in the UI/settings
-        const appKey = $('#dropbox_app_key').val() || extension_settings?.character_distributor?.dropboxAppKey;
-        const appSecret = $('#dropbox_app_secret').val() || extension_settings?.character_distributor?.dropboxAppSecret;
+        const appKey = $('#dropbox_app_key').val() || extension_settings?.['ST-CharacterDistributor-UI']?.dropboxAppKey;
+        const appSecret = $('#dropbox_app_secret').val() || extension_settings?.['ST-CharacterDistributor-UI']?.dropboxAppSecret;
         
         if (!appKey || !appSecret) {
             console.error('Character Distributor UI: App key or secret is missing');
@@ -209,11 +209,11 @@ export async function sendTokenToServer(tokenData) {
         }
         
         // Ensure settings are saved and sent to server before proceeding
-        if (!extension_settings.character_distributor) {
-            extension_settings.character_distributor = {};
+        if (!extension_settings['ST-CharacterDistributor-UI']) {
+            extension_settings['ST-CharacterDistributor-UI'] = {};
         }
-        extension_settings.character_distributor.dropboxAppKey = appKey;
-        extension_settings.character_distributor.dropboxAppSecret = appSecret;
+        extension_settings['ST-CharacterDistributor-UI'].dropboxAppKey = appKey;
+        extension_settings['ST-CharacterDistributor-UI'].dropboxAppSecret = appSecret;
         saveSettingsDebounced();
         
         try {
