@@ -1,6 +1,5 @@
 // Character Distributor UI - SillyTavern Extension
-// By BogusFrontend
-// Entry point as required by SillyTavern extensions system
+// By MonGauss
 
 import {
     // Settings utilities
@@ -20,6 +19,8 @@ import {
     authenticateWithDropbox,
     logoutFromDropbox,
     sendTokenToServer,
+    checkLocalStorageForToken,
+    clearLocalStorageTokens,
     
     // Character utilities
     getCharacterTags,
