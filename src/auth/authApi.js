@@ -3,7 +3,7 @@
 
 import { getRequestHeaders, saveSettingsDebounced } from "../../../../../../script.js";
 import { extension_settings } from "../../../../../extensions.js";
-import { sendSettingsToServer } from "../api/serverApi.js";
+import { sendSettingsToServer } from "../utils/settings.js";
 
 // Add a global variable to store the current authorization details with refresh token support
 let authData = {
