@@ -143,10 +143,28 @@ jQuery(async () => {
             if ($('#manual_token_section').is(':visible')) {
                 $('#manual_token_section').hide();
             }
+            
+            // Show success message in the UI
+            toastr.success('Connected to Dropbox', 'Authentication Successful');
+            
+            // Refresh character list after successful authentication
+            setTimeout(() => {
+                loadCharacterList().catch(err => {
+                    console.error('Character Distributor UI: Error loading characters after auth change:', err);
+                });
+            }, 1000);
         } else {
             // Update UI elements based on non-authenticated state
             $('#auth_button, #dropbox_auth, #manual_token_button, #submit_manual_token').show();
             $('#logout_button, #dropbox_logout').hide();
+            
+            // Check if there was an auth error stored
+            const authError = localStorage.getItem('dropbox_auth_error');
+            if (authError) {
+                // Display the error and remove it
+                toastr.error(`Authentication failed: ${authError}`, 'Authentication Error');
+                localStorage.removeItem('dropbox_auth_error');
+            }
         }
     });
     

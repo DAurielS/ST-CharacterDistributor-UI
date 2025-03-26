@@ -304,6 +304,9 @@
                         
                         communicated = true;
                         
+                        // Set auth completion flag in localStorage for reliable detection
+                        localStorage.setItem('dropbox_auth_completed', 'true');
+                        
                         // Update UI
                         statusElement.innerHTML = '<span style="color: #00aa00;">✓</span> Authentication successful! You can close this window.';
                         statusElement.className = 'success';
@@ -335,6 +338,9 @@
                     if (tokenData.refresh_token) {
                         localStorage.setItem('dropbox_refresh_token', tokenData.refresh_token);
                     }
+                    
+                    // Always set auth completed flag for polling detection
+                    localStorage.setItem('dropbox_auth_completed', 'true');
                     
                     communicated = true;
                     
@@ -415,6 +421,10 @@
                 // Update UI
                 statusElement.innerHTML = `Authentication failed: ${errorMessage}`;
                 statusElement.className = 'error';
+                
+                // Set auth completion flag (with error) for polling detection
+                localStorage.setItem('dropbox_auth_completed', 'true');
+                localStorage.setItem('dropbox_auth_error', errorMessage);
                 
                 // Show guidance
                 guidanceElement.innerHTML = `

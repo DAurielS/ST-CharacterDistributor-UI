@@ -106,6 +106,9 @@ export async function authenticateWithDropbox() {
         // We still store it in sessionStorage as a backup
         sessionStorage.setItem('dropbox_code_verifier', codeVerifier);
         
+        // Set flag to indicate authentication is in progress
+        sessionStorage.setItem('dropbox_auth_in_progress', 'true');
+        
         // Open the authorization URL in a new tab/window
         const authWindow = window.open(authUrl, '_blank', 'width=800,height=600');
         
@@ -117,8 +120,72 @@ export async function authenticateWithDropbox() {
         }
         
         console.log('Character Distributor UI: Opened auth window, waiting for response via postMessage');
-        // We're now relying on the postMessage communication or localStorage fallback
-        // with the callback page rather than polling, which was unreliable
+        
+        // Start polling for localStorage token as a fallback for postMessage
+        // This is needed because postMessage might fail in some browser contexts
+        let pollCount = 0;
+        const maxPolls = 120; // Poll for up to 2 minutes
+        const pollInterval = 1000; // Poll every second
+        
+        const pollForToken = setInterval(() => {
+            pollCount++;
+            
+            // Check localStorage for token that the callback might have saved
+            const savedToken = localStorage.getItem('dropbox_auth_token');
+            const authCompleted = localStorage.getItem('dropbox_auth_completed');
+            
+            if (savedToken || authCompleted === 'true') {
+                console.log('Character Distributor UI: Detected saved token via polling');
+                clearInterval(pollForToken);
+                
+                // Clear the auth in progress flag
+                sessionStorage.removeItem('dropbox_auth_in_progress');
+                
+                // Use the saved token if it exists
+                if (savedToken) {
+                    const tokenType = localStorage.getItem('dropbox_token_type') || 'bearer';
+                    const expiresIn = localStorage.getItem('dropbox_expires_in') || '14400';
+                    const refreshToken = localStorage.getItem('dropbox_refresh_token');
+                    
+                    // Create auth data from localStorage
+                    authData = {
+                        accessToken: savedToken,
+                        refreshToken: refreshToken,
+                        expiresIn: parseInt(expiresIn),
+                        tokenType: tokenType
+                    };
+                    
+                    // Send token to server
+                    sendTokenToServer()
+                        .then(success => {
+                            if (success) {
+                                console.log('Character Distributor UI: Successfully authenticated via polling');
+                                // Clear auth completed flag
+                                localStorage.removeItem('dropbox_auth_completed');
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Character Distributor UI: Error in polling auth:', err);
+                        });
+                } else {
+                    // Just check status if no token but auth was completed
+                    refreshAuthStatus();
+                    localStorage.removeItem('dropbox_auth_completed');
+                }
+            } else if (pollCount >= maxPolls) {
+                clearInterval(pollForToken);
+                console.warn('Character Distributor UI: Polling for token timed out');
+                
+                // Only update UI if we're still in the auth process
+                if ($('#auth_status').text() === 'Authentication in progress...') {
+                    $('#auth_status').text('Authentication timed out').removeClass('success').addClass('error');
+                    toastr.warning('Authentication process timed out. Try refreshing the page if you completed authentication.', 'Authentication Timeout');
+                }
+                
+                // Clear the auth in progress flag
+                sessionStorage.removeItem('dropbox_auth_in_progress');
+            }
+        }, pollInterval);
         
         // Set a reasonable timeout for the overall process (3 minutes)
         setTimeout(() => {
@@ -127,12 +194,21 @@ export async function authenticateWithDropbox() {
                 console.warn('Character Distributor UI: Auth process timed out after 3 minutes');
                 $('#auth_status').text('Authentication timed out').removeClass('success').addClass('error');
                 toastr.warning('Authentication process timed out after 3 minutes', 'Authentication Timeout');
+                
+                // Clear the interval if it's still running
+                clearInterval(pollForToken);
+                
+                // Clear the auth in progress flag
+                sessionStorage.removeItem('dropbox_auth_in_progress');
             }
         }, 180000);
     } catch (error) {
         console.error('Character Distributor UI: Authentication error', error);
         $('#auth_status').text('Authentication error').removeClass('success').addClass('error');
         toastr.error(`Error during authentication process: ${error.message}`, 'Authentication Failed');
+        
+        // Clear the auth in progress flag
+        sessionStorage.removeItem('dropbox_auth_in_progress');
     }
 }
 
@@ -727,6 +803,9 @@ export function handleDropboxAuthCallback(event) {
             console.error('Character Distributor UI: Received error from auth window:', event.data.error);
             $('#auth_status').text(`Authentication failed: ${event.data.error}`).removeClass('success').addClass('error');
             toastr.error(event.data.error, 'Authentication Failed');
+            
+            // Set a flag that auth is completed (with error)
+            localStorage.setItem('dropbox_auth_completed', 'true');
             return;
         }
         
@@ -737,6 +816,9 @@ export function handleDropboxAuthCallback(event) {
             console.error('Character Distributor UI: No access token in callback message');
             $('#auth_status').text('Authentication failed: No token received').removeClass('success').addClass('error');
             toastr.error('No access token received from Dropbox', 'Authentication Failed');
+            
+            // Set a flag that auth is completed (with error)
+            localStorage.setItem('dropbox_auth_completed', 'true');
             return;
         }
         
@@ -756,10 +838,19 @@ export function handleDropboxAuthCallback(event) {
         // Update UI
         $('#auth_status').text('Processing token from callback...');
         
+        // Save token to localStorage as fallback for polling mechanism
+        storeAuthToken(accessToken, tokenType, expiresIn, refreshToken);
+        
+        // Set a flag that auth is completed successfully
+        localStorage.setItem('dropbox_auth_completed', 'true');
+        
         // Send the token to the server
         sendTokenToServer().then(success => {
             if (success) {
                 console.log('Character Distributor UI: Successfully authenticated with token from callback');
+                
+                // Remove the auth completed flag as we have successfully processed it
+                localStorage.removeItem('dropbox_auth_completed');
             } else {
                 console.error('Character Distributor UI: Failed to authenticate with token from callback');
             }
@@ -772,6 +863,9 @@ export function handleDropboxAuthCallback(event) {
         console.error('Character Distributor UI: Error processing auth callback:', error);
         $('#auth_status').text('Authentication callback error').removeClass('success').addClass('error');
         toastr.error('Error processing authentication callback', 'Authentication Failed');
+        
+        // Set a flag that auth is completed (with error)
+        localStorage.setItem('dropbox_auth_completed', 'true');
     }
 }
 
