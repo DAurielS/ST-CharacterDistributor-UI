@@ -128,7 +128,7 @@ jQuery(async () => {
         console.error('Character Distributor UI: Error checking server status:', error);
     }
     
-    // Register auth callback handler
+    // Register auth callback handler for backward compatibility
     window.addEventListener('message', handleDropboxAuthCallback);
     
     // Set up listener for auth state changes
@@ -167,6 +167,12 @@ jQuery(async () => {
             }
         }
     });
+    
+    // Check for any lingering auth completion flags and clean them up
+    if (localStorage.getItem('dropbox_auth_completed')) {
+        console.log('Character Distributor UI: Found lingering auth completion flag on startup, cleaning up');
+        localStorage.removeItem('dropbox_auth_completed');
+    }
     
     // Attempt to restore authentication
     try {
