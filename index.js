@@ -100,9 +100,6 @@ jQuery(async () => {
     // Set up event handlers
     setupEventHandlers();
     
-    // Register slash commands
-    registerCommands();
-    
     // Check server status only after settings are loaded
     try {
         await checkServerStatus();
