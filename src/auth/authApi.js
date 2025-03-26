@@ -3,7 +3,7 @@
 
 import { getRequestHeaders, saveSettingsDebounced } from "../../../../../../script.js";
 import { extension_settings } from "../../../../../extensions.js";
-import { sendSettingsToServer } from "../utils/settings.js";
+import { sendSettingsToServer, MODULE_NAME } from "../utils/settings.js";
 
 // Add a global variable to store the current authorization details with refresh token support
 let authData = {
@@ -198,8 +198,8 @@ export async function sendTokenToServer(tokenData) {
         console.log('Character Distributor UI: Refresh token provided:', !!authDataToUse.refreshToken);
         
         // Check if the app keys are set in the UI/settings
-        const appKey = $('#dropbox_app_key').val() || extension_settings?.['ST-CharacterDistributor-UI']?.dropboxAppKey;
-        const appSecret = $('#dropbox_app_secret').val() || extension_settings?.['ST-CharacterDistributor-UI']?.dropboxAppSecret;
+        const appKey = $('#dropbox_app_key').val() || extension_settings?.[MODULE_NAME]?.dropboxAppKey;
+        const appSecret = $('#dropbox_app_secret').val() || extension_settings?.[MODULE_NAME]?.dropboxAppSecret;
         
         if (!appKey || !appSecret) {
             console.error('Character Distributor UI: App key or secret is missing');
@@ -209,11 +209,11 @@ export async function sendTokenToServer(tokenData) {
         }
         
         // Ensure settings are saved and sent to server before proceeding
-        if (!extension_settings['ST-CharacterDistributor-UI']) {
-            extension_settings['ST-CharacterDistributor-UI'] = {};
+        if (!extension_settings[MODULE_NAME]) {
+            extension_settings[MODULE_NAME] = {};
         }
-        extension_settings['ST-CharacterDistributor-UI'].dropboxAppKey = appKey;
-        extension_settings['ST-CharacterDistributor-UI'].dropboxAppSecret = appSecret;
+        extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+        extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
         saveSettingsDebounced();
         
         try {
