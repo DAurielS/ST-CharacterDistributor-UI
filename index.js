@@ -58,8 +58,22 @@ jQuery(async () => {
         return;
     }
 
+    // Initialize the extension_settings object for our module
+    if (!extension_settings[MODULE_NAME]) {
+        extension_settings[MODULE_NAME] = {};
+    }
+
     // Load extension settings
-    extension_settings = loadSettings();
+    try {
+        extension_settings = loadSettings();
+        console.log('Character Distributor UI: Settings loaded successfully');
+    } catch (error) {
+        console.error('Character Distributor UI: Error loading settings:', error);
+        // Ensure we have a settings object even if loading fails
+        if (!extension_settings[MODULE_NAME]) {
+            extension_settings[MODULE_NAME] = {};
+        }
+    }
     
     // Set up event handlers
     setupEventHandlers();
@@ -67,14 +81,22 @@ jQuery(async () => {
     // Register slash commands
     registerCommands();
     
-    // Check server status
-    await checkServerStatus();
+    // Check server status only after settings are loaded
+    try {
+        await checkServerStatus();
+    } catch (error) {
+        console.error('Character Distributor UI: Error checking server status:', error);
+    }
     
     // Register auth callback handler
     window.addEventListener('message', handleDropboxAuthCallback);
     
     // Attempt to restore authentication
-    await checkLocalStorageForToken();
+    try {
+        await checkLocalStorageForToken();
+    } catch (error) {
+        console.error('Character Distributor UI: Error checking local storage for token:', error);
+    }
     
     console.log('Character Distributor UI: Extension initialized');
 });
@@ -316,9 +338,14 @@ async function checkLocalStorageForToken() {
     console.log('Token length:', accessToken?.length || 0);
     console.log('Refresh token exists:', !!refreshToken);
     
+    // Initialize settings object if needed
+    if (!extension_settings[MODULE_NAME]) {
+        extension_settings[MODULE_NAME] = {};
+    }
+    
     // Make sure we have app keys configured before trying to use the token
-    const appKey = $('#dropbox_app_key').val() || extension_settings[MODULE_NAME].dropboxAppKey;
-    const appSecret = $('#dropbox_app_secret').val() || extension_settings[MODULE_NAME].dropboxAppSecret;
+    const appKey = $('#dropbox_app_key').val() || extension_settings[MODULE_NAME]?.dropboxAppKey;
+    const appSecret = $('#dropbox_app_secret').val() || extension_settings[MODULE_NAME]?.dropboxAppSecret;
     
     if (!appKey || !appSecret) {
         console.warn('Character Distributor UI: App Key or Secret not configured. Cannot use saved token.');

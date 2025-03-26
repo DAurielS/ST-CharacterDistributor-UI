@@ -100,7 +100,7 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
         // If parameters aren't provided, get them from UI and filter characters
         if (!characterFiles || !excludedCharacters) {
             // Get excluded tags from settings/UI
-            const tags = excludeTags || $('#exclude_tags').val().split(',').map(tag => tag.trim()).filter(tag => tag);
+            const tags = excludeTags || $('#exclude_tags').val()?.split(',').map(tag => tag.trim()).filter(tag => tag) || [];
             console.log('Character Distributor UI: Excluded tags:', tags);
             
             // Filter characters based on SillyTavern tags
@@ -127,7 +127,7 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
             headers: headers,
             body: JSON.stringify({
                 allowedCharacterFiles: characterFiles, // Send list of files that are allowed
-                excludeTags: excludeTags || $('#exclude_tags').val().split(',').map(tag => tag.trim()).filter(tag => tag), // Also send excluded tags for secondary filtering
+                excludeTags: excludeTags || $('#exclude_tags').val()?.split(',').map(tag => tag.trim()).filter(tag => tag) || [], 
                 excludedCharacters: excludedCharacters // Explicitly send the excluded character list
             })
         });
@@ -228,9 +228,9 @@ export async function generateShareLink(characterId) {
  * @returns {Promise<boolean>} Whether auto-sync should be triggered
  */
 export async function checkAutoSync(status) {
-    if (extension_settings[MODULE_NAME]?.autoSync && status.authenticated) {
+    if (extension_settings?.[MODULE_NAME]?.autoSync && status?.authenticated) {
         const lastSyncTime = status.lastSync ? new Date(status.lastSync) : null;
-        const syncInterval = extension_settings[MODULE_NAME]?.syncInterval || 1800;
+        const syncInterval = extension_settings?.[MODULE_NAME]?.syncInterval || 1800;
         const now = new Date();
         
         if (lastSyncTime) {
@@ -246,7 +246,7 @@ export async function checkAutoSync(status) {
                     Math.floor(syncInterval - timeSinceSync), 'seconds');
                 return false;
             }
-        } else if (status.authenticated) {
+        } else if (status?.authenticated) {
             // No last sync time found, trigger initial sync
             console.log('Character Distributor UI: No last sync time found, triggering initial sync');
             return true;

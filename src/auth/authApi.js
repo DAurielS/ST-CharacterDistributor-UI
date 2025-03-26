@@ -51,9 +51,11 @@ export async function authenticateWithDropbox() {
         }
         
         // Save the settings before continuing
-        extension_settings.character_distributor = extension_settings.character_distributor || {};
-        extension_settings.character_distributor.dropboxAppKey = appKey;
-        extension_settings.character_distributor.dropboxAppSecret = appSecret;
+        if (!extension_settings[MODULE_NAME]) {
+            extension_settings[MODULE_NAME] = {};
+        }
+        extension_settings[MODULE_NAME].dropboxAppKey = appKey;
+        extension_settings[MODULE_NAME].dropboxAppSecret = appSecret;
         saveSettingsDebounced();
         
         console.log('Character Distributor UI: Saved app key and secret to settings');
@@ -196,8 +198,8 @@ export async function sendTokenToServer(tokenData) {
         console.log('Character Distributor UI: Refresh token provided:', !!authDataToUse.refreshToken);
         
         // Check if the app keys are set in the UI/settings
-        const appKey = $('#dropbox_app_key').val() || extension_settings.character_distributor?.dropboxAppKey;
-        const appSecret = $('#dropbox_app_secret').val() || extension_settings.character_distributor?.dropboxAppSecret;
+        const appKey = $('#dropbox_app_key').val() || extension_settings?.character_distributor?.dropboxAppKey;
+        const appSecret = $('#dropbox_app_secret').val() || extension_settings?.character_distributor?.dropboxAppSecret;
         
         if (!appKey || !appSecret) {
             console.error('Character Distributor UI: App key or secret is missing');
@@ -207,7 +209,9 @@ export async function sendTokenToServer(tokenData) {
         }
         
         // Ensure settings are saved and sent to server before proceeding
-        extension_settings.character_distributor = extension_settings.character_distributor || {};
+        if (!extension_settings.character_distributor) {
+            extension_settings.character_distributor = {};
+        }
         extension_settings.character_distributor.dropboxAppKey = appKey;
         extension_settings.character_distributor.dropboxAppSecret = appSecret;
         saveSettingsDebounced();
