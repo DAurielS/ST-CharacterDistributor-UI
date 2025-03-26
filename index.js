@@ -22,6 +22,7 @@ import {
     checkLocalStorageForToken,
     clearLocalStorageTokens,
     handleDropboxAuthCallback,
+    onAuthStateChanged,
     
     // Character utilities
     getCharacterTags,
@@ -46,6 +47,26 @@ let authData = {
     refreshToken: null,
     expiresIn: null,
     tokenType: null
+};
+
+// Create a global namespace for Character Distributor functions
+window.characterDistributor = {
+    // This function will be called when auth state changes
+    refreshAfterAuth: async function() {
+        console.log('Character Distributor UI: Refreshing after authentication');
+        try {
+            // Refresh server status first
+            await checkServerStatus();
+            
+            // Then refresh characters if authenticated
+            await loadCharacterList();
+            
+            console.log('Character Distributor UI: Successfully refreshed after authentication');
+            toastr.success('Successfully connected and loaded characters', 'Authentication Complete');
+        } catch (error) {
+            console.error('Character Distributor UI: Error refreshing after auth:', error);
+        }
+    }
 };
 
 /**
@@ -109,6 +130,25 @@ jQuery(async () => {
     
     // Register auth callback handler
     window.addEventListener('message', handleDropboxAuthCallback);
+    
+    // Set up listener for auth state changes
+    onAuthStateChanged((authState) => {
+        console.log('Character Distributor UI: Auth state changed', authState);
+        if (authState.authenticated) {
+            // Update UI elements based on authenticated state
+            $('#auth_button, #dropbox_auth, #manual_token_button, #submit_manual_token').hide();
+            $('#logout_button, #dropbox_logout, #sync_button, #force_sync').show();
+            
+            // Update any other UI elements that depend on authentication state
+            if ($('#manual_token_section').is(':visible')) {
+                $('#manual_token_section').hide();
+            }
+        } else {
+            // Update UI elements based on non-authenticated state
+            $('#auth_button, #dropbox_auth, #manual_token_button, #submit_manual_token').show();
+            $('#logout_button, #dropbox_logout').hide();
+        }
+    });
     
     // Attempt to restore authentication
     try {

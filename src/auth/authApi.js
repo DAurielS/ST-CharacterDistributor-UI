@@ -13,6 +13,9 @@ let authData = {
     tokenType: null
 };
 
+// Custom event name for auth state changes
+const AUTH_STATE_CHANGED_EVENT = 'character-distributor-auth-state-changed';
+
 /**
  * Authenticate with Dropbox via OAuth using PKCE flow
  * @returns {Promise<void>}
@@ -280,6 +283,34 @@ export async function sendTokenToServer(tokenData) {
                     
                     // Check server status after a short delay to confirm
                     setTimeout(refreshAuthStatus, 2000);
+                    
+                    // Dispatch a custom event to notify the application that auth state has changed
+                    // This allows components to refresh without page reload
+                    const authStateEvent = new CustomEvent(AUTH_STATE_CHANGED_EVENT, {
+                        detail: { authenticated: true }
+                    });
+                    document.dispatchEvent(authStateEvent);
+                    
+                    // Refresh any UI components that need to be updated
+                    setTimeout(() => {
+                        // If there's a refresh method defined elsewhere in the app, call it
+                        if (typeof window.characterDistributor !== 'undefined' && 
+                            typeof window.characterDistributor.refreshAfterAuth === 'function') {
+                            window.characterDistributor.refreshAfterAuth();
+                        }
+                        
+                        // Force refresh of key UI components
+                        try {
+                            // Try to trigger any initialization functions or UI refreshes
+                            // that should happen after authentication
+                            if (typeof initializeUI === 'function') {
+                                initializeUI();
+                            }
+                        } catch (refreshErr) {
+                            console.warn('Character Distributor UI: Error refreshing UI after auth:', refreshErr);
+                        }
+                    }, 1000);
+                    
                     return true;
                 } else {
                     console.error('Character Distributor UI: Server returned success=false:', data.error);
@@ -363,10 +394,22 @@ export async function refreshAuthStatus() {
                 $('#auth_status').text('Authenticated');
                 $('#auth_status').addClass('success').removeClass('error');
                 toastr.success('Authentication status refreshed');
+                
+                // Dispatch auth state changed event
+                const authStateEvent = new CustomEvent(AUTH_STATE_CHANGED_EVENT, {
+                    detail: { authenticated: true }
+                });
+                document.dispatchEvent(authStateEvent);
             } else {
                 $('#auth_status').text('Not authenticated');
                 $('#auth_status').removeClass('success error');
                 toastr.info('Not authenticated with Dropbox');
+                
+                // Dispatch auth state changed event
+                const authStateEvent = new CustomEvent(AUTH_STATE_CHANGED_EVENT, {
+                    detail: { authenticated: false }
+                });
+                document.dispatchEvent(authStateEvent);
             }
             
             // Update the server status UI
@@ -730,4 +773,22 @@ export function handleDropboxAuthCallback(event) {
         $('#auth_status').text('Authentication callback error').removeClass('success').addClass('error');
         toastr.error('Error processing authentication callback', 'Authentication Failed');
     }
+}
+
+/**
+ * Listen for auth state change events
+ * @param {Function} callback - Function to call when auth state changes
+ * @returns {Function} - Function to remove the event listener
+ */
+export function onAuthStateChanged(callback) {
+    if (typeof callback !== 'function') {
+        console.error('Character Distributor UI: onAuthStateChanged requires a function callback');
+        return () => {};
+    }
+    
+    const handler = (event) => callback(event.detail);
+    document.addEventListener(AUTH_STATE_CHANGED_EVENT, handler);
+    
+    // Return a function to remove the listener
+    return () => document.removeEventListener(AUTH_STATE_CHANGED_EVENT, handler);
 } 
