@@ -34,7 +34,8 @@ import { getTagsList, getTagKeyForEntity, tag_map, tags } from "../../../tags.js
 import { registerSlashCommand } from "../../../slash-commands.js";
 
 // Extension namespace
-export const MODULE_NAME = 'character_distributor';
+export const MODULE_NAME = 'ST-CharacterDistributor';
+export const extensionFolderPath = `/scripts/extensions/third-party/${MODULE_NAME}-UI`;
 
 // Storage for extension settings
 export let extension_settings = {};
@@ -51,6 +52,23 @@ let authData = {
 let isLoadingCharacters = false;
 let characterLoadDebounceTimer = null;
 
+/**
+ * Initialize UI components and event handlers
+ * @returns {Promise<void>}
+ */
+async function initializeUI() {
+    // Load settings HTML
+    try {
+        console.log('Character Distributor UI: Loading UI template...');
+        const settingsHtml = await fetch(`${extensionFolderPath}/settings.html`).then(response => response.text());
+        $('#extensions_settings2').append(settingsHtml);
+        console.log('Character Distributor UI: UI template loaded and appended');
+    } catch (error) {
+        console.error('Character Distributor UI: Error loading settings HTML:', error);
+        toastr.error('Failed to load UI template', 'UI Error');
+    }
+}
+
 // Initialize the extension
 jQuery(async () => {
     if (!window.SillyTavern) {
@@ -61,6 +79,14 @@ jQuery(async () => {
     // Initialize the extension_settings object for our module
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
+    }
+
+    // Load UI first
+    try {
+        await initializeUI();
+        console.log('Character Distributor UI: UI initialized');
+    } catch (error) {
+        console.error('Character Distributor UI: Error initializing UI:', error);
     }
 
     // Load extension settings
@@ -96,6 +122,14 @@ jQuery(async () => {
         await checkLocalStorageForToken();
     } catch (error) {
         console.error('Character Distributor UI: Error checking local storage for token:', error);
+    }
+    
+    // Initial character list loading
+    try {
+        await loadCharacterList();
+        console.log('Character Distributor UI: Character list loaded');
+    } catch (error) {
+        console.error('Character Distributor UI: Error loading character list:', error);
     }
     
     console.log('Character Distributor UI: Extension initialized');

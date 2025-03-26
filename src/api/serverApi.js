@@ -99,8 +99,26 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
     try {
         // If parameters aren't provided, get them from UI and filter characters
         if (!characterFiles || !excludedCharacters) {
-            // Get excluded tags from settings/UI
-            const tags = excludeTags || $('#exclude_tags').val()?.split(',').map(tag => tag.trim()).filter(tag => tag) || [];
+            // Get excluded tags from settings/UI with priority order:
+            // 1. Explicitly passed tags
+            // 2. UI element value
+            // 3. Settings value
+            // 4. Empty array as fallback
+            let tags;
+            if (excludeTags && Array.isArray(excludeTags)) {
+                // Use explicitly passed tags
+                tags = excludeTags;
+            } else if ($('#exclude_tags').length > 0 && $('#exclude_tags').val()) {
+                // Use UI element value if it exists and has content
+                tags = $('#exclude_tags').val()?.split(',').map(tag => tag.trim()).filter(tag => tag) || [];
+            } else if (extension_settings?.[MODULE_NAME]?.excludeTags && Array.isArray(extension_settings[MODULE_NAME].excludeTags)) {
+                // Use settings value if available
+                tags = extension_settings[MODULE_NAME].excludeTags;
+            } else {
+                // Fallback to empty array
+                tags = [];
+            }
+            
             console.log('Character Distributor UI: Excluded tags:', tags);
             
             // Filter characters based on SillyTavern tags
@@ -121,13 +139,19 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
         const headers = getRequestHeaders();
         headers['Content-Type'] = 'application/json';
         
+        // Get excluded tags for the request body using the same priority logic
+        const excludeTagsForRequest = excludeTags || 
+            ($('#exclude_tags').length > 0 ? $('#exclude_tags').val()?.split(',').map(tag => tag.trim()).filter(tag => tag) : null) || 
+            (extension_settings?.[MODULE_NAME]?.excludeTags) || 
+            [];
+        
         // Send the list of allowed characters to the server
         const response = await fetch('/api/plugins/character-distributor/sync', {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
                 allowedCharacterFiles: characterFiles, // Send list of files that are allowed
-                excludeTags: excludeTags || $('#exclude_tags').val()?.split(',').map(tag => tag.trim()).filter(tag => tag) || [], 
+                excludeTags: excludeTagsForRequest, // Also send excluded tags for secondary filtering
                 excludedCharacters: excludedCharacters // Explicitly send the excluded character list
             })
         });
