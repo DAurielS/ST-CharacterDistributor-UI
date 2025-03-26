@@ -660,4 +660,74 @@ export async function exchangeCodeForToken(code, appKey, redirectUri) {
         $('#auth_status').text('Token exchange error').removeClass('success').addClass('error');
         toastr.error('Error exchanging authorization code for access token', 'Authentication Failed');
     }
+}
+
+/**
+ * Handle the OAuth callback message from the popup window
+ * @param {MessageEvent} event - The postMessage event containing auth data
+ * @returns {void}
+ */
+export function handleDropboxAuthCallback(event) {
+    console.log('Character Distributor UI: Received postMessage event');
+    
+    // Validate message source and data
+    if (!event.data || typeof event.data !== 'object' || event.data.source !== 'dropbox-auth') {
+        console.log('Character Distributor UI: Ignoring unrelated message event', event.data?.source || 'no source');
+        return;
+    }
+    
+    console.log('Character Distributor UI: Processing Dropbox auth callback message');
+    
+    try {
+        // Check for error first
+        if (event.data.error) {
+            console.error('Character Distributor UI: Received error from auth window:', event.data.error);
+            $('#auth_status').text(`Authentication failed: ${event.data.error}`).removeClass('success').addClass('error');
+            toastr.error(event.data.error, 'Authentication Failed');
+            return;
+        }
+        
+        // Extract token data from the message
+        const { accessToken, tokenType, expiresIn, refreshToken } = event.data;
+        
+        if (!accessToken) {
+            console.error('Character Distributor UI: No access token in callback message');
+            $('#auth_status').text('Authentication failed: No token received').removeClass('success').addClass('error');
+            toastr.error('No access token received from Dropbox', 'Authentication Failed');
+            return;
+        }
+        
+        console.log('Character Distributor UI: Received access token from callback');
+        console.log('Character Distributor UI: Token length:', accessToken.length);
+        console.log('Character Distributor UI: Token type:', tokenType || 'bearer');
+        console.log('Character Distributor UI: Refresh token present:', !!refreshToken);
+        
+        // Store the token in authData
+        authData = {
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresIn: parseInt(expiresIn || '14400'),
+            tokenType: tokenType || 'bearer'
+        };
+        
+        // Update UI
+        $('#auth_status').text('Processing token from callback...');
+        
+        // Send the token to the server
+        sendTokenToServer().then(success => {
+            if (success) {
+                console.log('Character Distributor UI: Successfully authenticated with token from callback');
+            } else {
+                console.error('Character Distributor UI: Failed to authenticate with token from callback');
+            }
+        }).catch(error => {
+            console.error('Character Distributor UI: Error processing callback token:', error);
+            $('#auth_status').text('Authentication failed').removeClass('success').addClass('error');
+            toastr.error('Error processing authentication token', 'Authentication Failed');
+        });
+    } catch (error) {
+        console.error('Character Distributor UI: Error processing auth callback:', error);
+        $('#auth_status').text('Authentication callback error').removeClass('success').addClass('error');
+        toastr.error('Error processing authentication callback', 'Authentication Failed');
+    }
 } 

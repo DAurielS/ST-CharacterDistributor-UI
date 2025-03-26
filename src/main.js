@@ -15,7 +15,8 @@ import {
     logoutFromDropbox, 
     sendTokenToServer,
     checkLocalStorageForToken,
-    clearLocalStorageTokens
+    clearLocalStorageTokens,
+    handleDropboxAuthCallback
 } from './auth/authApi.js';
 import { 
     getCharacterTags, 
@@ -46,6 +47,7 @@ export {
     sendTokenToServer,
     checkLocalStorageForToken,
     clearLocalStorageTokens,
+    handleDropboxAuthCallback,
     
     // Character utilities
     getCharacterTags,
