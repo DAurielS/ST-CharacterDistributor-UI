@@ -1,7 +1,7 @@
 // Authentication API module for Character Distributor UI
 // Contains functions for authentication with Dropbox
 
-import { getRequestHeaders } from "../../../../../script.js";
+import { getRequestHeaders } from "../../../../../../script.js";
 
 /**
  * Logout from Dropbox

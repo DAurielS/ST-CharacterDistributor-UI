@@ -1,9 +1,9 @@
 // Server API module for Character Distributor UI
 // Contains functions for interacting with the server plugin
 
-import { getRequestHeaders } from "../../../../../script.js";
+import { getRequestHeaders } from "../../../../../../script.js";
 import { MODULE_NAME } from "../utils/settings.js";
-import { extension_settings } from "../../../../extensions.js";
+import { extension_settings } from "../../../../../extensions.js";
 
 /**
  * Check if server plugin is running

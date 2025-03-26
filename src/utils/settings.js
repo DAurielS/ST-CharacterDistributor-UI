@@ -1,7 +1,7 @@
 // Settings utility module for Character Distributor
 
-import { extension_settings } from "../../../../extensions.js";
-import { saveSettingsDebounced, getRequestHeaders } from "../../../../../script.js";
+import { extension_settings } from "../../../../../extensions.js";
+import { saveSettingsDebounced, getRequestHeaders } from "../../../../../../script.js";
 
 // Extension metadata
 export const MODULE_NAME = 'character_distributor';

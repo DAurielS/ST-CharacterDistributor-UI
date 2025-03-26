@@ -1,9 +1,9 @@
 // Character utilities module for Character Distributor UI
 // Contains functions for managing characters and their tags
 
-import { getCharacters, getRequestHeaders } from "../../../../../script.js";
-import { getContext } from "../../../../extensions.js";
-import { getTagsList, getTagKeyForEntity, tag_map, tags } from "../../../../tags.js";
+import { getCharacters, getRequestHeaders } from "../../../../../../script.js";
+import { getContext } from "../../../../../extensions.js";
+import { getTagsList, getTagKeyForEntity, tag_map, tags } from "../../../../../tags.js";
 
 // Variables to track loading state
 let isLoadingCharacters = false;
