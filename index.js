@@ -6,6 +6,7 @@ import {
     // Settings utilities
     loadSettings,
     saveSettings,
+    testEchoEndpoint,
     
     // Server API utilities
     checkServerStatus,
@@ -145,6 +146,16 @@ function setupEventHandlers() {
             extension_settings[MODULE_NAME].dropboxAppSecret = $(this).val();
         }
         saveSettingsDebounced();
+    });
+    
+    // Save settings button
+    $('#save_settings').on('click', function() {
+        saveSettings();
+    });
+    
+    // Settings diagnostics button
+    $('#test_settings_api').on('click', function() {
+        testEchoEndpoint();
     });
     
     // Authentication buttons
