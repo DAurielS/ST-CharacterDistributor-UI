@@ -17,6 +17,14 @@ export const defaultSettings = {
 };
 
 /**
+ * Get extension settings - convenience function that calls loadSettings
+ * @returns {Object} Current settings
+ */
+export function getSettings() {
+    return loadSettings();
+}
+
+/**
  * Initialize extension settings if needed
  * @returns {Object} Current settings
  */

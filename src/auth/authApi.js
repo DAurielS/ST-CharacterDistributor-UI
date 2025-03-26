@@ -2,6 +2,55 @@
 // Contains functions for authentication with Dropbox
 
 import { getRequestHeaders } from "../../../../../../script.js";
+import { extension_settings } from "../../../../../extensions.js";
+
+/**
+ * Authenticate with Dropbox via OAuth
+ * @returns {Promise<void>}
+ */
+export async function authenticateWithDropbox() {
+    console.log('Character Distributor UI: Initiating Dropbox authentication');
+    
+    try {
+        // Get app key from settings
+        const settings = extension_settings?.character_distributor || {};
+        const appKey = settings.dropboxAppKey;
+        
+        if (!appKey) {
+            $('#auth_status').text('Authentication failed: No App Key configured').removeClass('success').addClass('error');
+            toastr.error('Please configure your Dropbox App Key in settings', 'Configuration Error');
+            return;
+        }
+        
+        // Set up the OAuth flow
+        const redirectUri = encodeURIComponent(window.location.origin + '/oauth_callback.html');
+        const state = Math.random().toString(36).substring(2);
+        
+        // Store state for verification
+        localStorage.setItem('dropbox_auth_state', state);
+        
+        // Construct OAuth URL
+        const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${encodeURIComponent(appKey)}&response_type=token&redirect_uri=${redirectUri}&state=${state}`;
+        
+        // Track auth attempt start time
+        localStorage.setItem('dropbox_auth_started', Date.now().toString());
+        
+        // Update UI to show authentication in progress
+        $('#auth_status').text('Authentication in progress...');
+        
+        // Open popup window for authentication
+        const authWindow = window.open(authUrl, 'DropboxAuth', 'width=800,height=600');
+        
+        if (!authWindow) {
+            toastr.error('Pop-up blocked. Please allow pop-ups for this site and try again.', 'Authentication Error');
+            $('#auth_status').text('Authentication failed: Pop-up blocked').removeClass('success').addClass('error');
+        }
+    } catch (error) {
+        console.error('Character Distributor UI: Error initiating Dropbox authentication:', error);
+        $('#auth_status').text(`Authentication failed: ${error.message || 'Unknown error'}`).removeClass('success').addClass('error');
+        toastr.error(`Error: ${error.message || 'Unknown error'}`, 'Authentication Failed');
+    }
+}
 
 /**
  * Logout from Dropbox
