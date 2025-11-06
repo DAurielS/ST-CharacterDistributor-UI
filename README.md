@@ -28,6 +28,7 @@ After installing the extension, you'll need to:
    - Choose "Scoped access" and "Full Dropbox" access
    - Name your app (e.g., "ST Character Distributor")
    - Add `http://localhost:8000/scripts/extensions/third-party/ST-CharacterDistributor/dist/public/oauth_callback.html` as a redirect URI
+   - Add `http://127.0.0.1:8000/scripts/extensions/third-party/ST-CharacterDistributor/dist/public/oauth_callback.html` as well for redundancy
 
 2. Configure the extension in SillyTavern:
    - Open the extension settings from the Extensions menu
