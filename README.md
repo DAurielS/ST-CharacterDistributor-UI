@@ -25,10 +25,14 @@ After installing the extension, you'll need to:
 1. Create a Dropbox API app:
    - Go to [Dropbox Developer Console](https://www.dropbox.com/developers/apps)
    - Click "Create app"
-   - Choose "Scoped access" and "Full Dropbox" access
+   - Choose "Scoped access" and "App Folder" access
    - Name your app (e.g., "ST Character Distributor")
    - Add `http://localhost:8000/scripts/extensions/third-party/ST-CharacterDistributor/dist/public/oauth_callback.html` as a redirect URI
    - Add `http://127.0.0.1:8000/scripts/extensions/third-party/ST-CharacterDistributor/dist/public/oauth_callback.html` as well for redundancy
+   - Go to the Permissions menu within the app configuration page
+   - Enable everything under "Files and folders"
+   - Click "Submit"
+   - Note your App Key and App Secret for later use
 
 2. Configure the extension in SillyTavern:
    - Open the extension settings from the Extensions menu
@@ -79,8 +83,6 @@ The built extension will be available in the `dist` directory.
 
 ## Code Structure
 
-The codebase has been refactored following the Single Responsibility Principle to improve maintainability:
-
 - **index.js**: Main entry point required by SillyTavern's extension system
 - **settings.html**: UI definition loaded automatically by SillyTavern
 - **src/main.js**: Central module that imports and re-exports all functionality 
@@ -88,12 +90,6 @@ The codebase has been refactored following the Single Responsibility Principle t
 - **src/api/serverApi.js**: Server communication functions
 - **src/auth/authApi.js**: Authentication-related functions
 - **src/characters/characterUtils.js**: Character management utilities
-
-This modular structure makes the codebase easier to maintain and extend while maintaining compatibility with SillyTavern's extension system.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgements
 
