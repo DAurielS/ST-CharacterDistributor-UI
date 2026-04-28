@@ -5,6 +5,7 @@ import { loadSettings, saveSettings, testEchoEndpoint } from './utils/settings.j
 import { 
     checkServerStatus, 
     triggerSync, 
+    generateIndex,
     generateShareLink,
     checkDiagnostics,
     calculateNextSyncTime 
@@ -37,6 +38,7 @@ export {
     // Server API utilities
     checkServerStatus,
     triggerSync,
+    generateIndex,
     generateShareLink,
     checkDiagnostics,
     calculateNextSyncTime,

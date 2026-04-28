@@ -137,7 +137,7 @@ jQuery(async () => {
         if (authState.authenticated) {
             // Update UI elements based on authenticated state
             $('#auth_button, #dropbox_auth, #manual_token_button, #submit_manual_token').hide();
-            $('#logout_button, #dropbox_logout, #sync_button, #force_sync').show();
+            $('#logout_button, #dropbox_logout, #sync_button, #force_sync, #update_index').show();
             
             // Update any other UI elements that depend on authentication state
             if ($('#manual_token_section').is(':visible')) {
@@ -264,6 +264,11 @@ function setupEventHandlers() {
     // Sync button
     $('#sync_button, #force_sync').on('click', function() {
         triggerSync();
+    });
+
+    // Update index.json button
+    $('#update_index').on('click', function() {
+        generateIndex();
     });
     
     // Exclude tags input

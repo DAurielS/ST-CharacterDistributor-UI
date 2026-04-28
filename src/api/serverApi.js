@@ -202,6 +202,47 @@ export async function triggerSync(characterFiles, excludedCharacters, excludeTag
 }
 
 /**
+ * Trigger generation of index.json on the server without performing a full sync
+ * @returns {Promise<Object>} Result object
+ */
+export async function generateIndex() {
+    console.log('Character Distributor UI: Requesting index.json generation...');
+    $('#sync_status').text('Generating index.json...');
+    $('#update_index').prop('disabled', true);
+
+    try {
+        const response = await fetch('/api/plugins/character-distributor/generate-index', {
+            method: 'POST',
+            headers: getRequestHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Character Distributor UI: generate-index response:', data);
+
+        if (data && data.success) {
+            toastr.success('index.json generation completed');
+            updateSyncStatus({ success: true, message: 'index.json updated' });
+        } else {
+            toastr.error(data.error || 'Failed to generate index.json');
+            updateSyncStatus({ success: false, message: data.error || 'Failed to generate index.json' });
+        }
+
+        return data;
+    } catch (error) {
+        console.error('Character Distributor UI: Error generating index.json', error);
+        toastr.error('Error generating index.json');
+        updateSyncStatus({ success: false, message: 'Error generating index.json' });
+        return { success: false, error: error.message };
+    } finally {
+        $('#update_index').prop('disabled', false);
+    }
+}
+
+/**
  * Generate share link for a character
  * @param {string} [characterId] - Character ID to share (optional, will use selected character from UI if not provided)
  * @returns {Promise<string|null>} Share link or null if failed
