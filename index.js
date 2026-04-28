@@ -10,6 +10,7 @@ import {
     // Server API utilities
     checkServerStatus,
     triggerSync,
+    generateIndex,
     generateShareLink,
     checkDiagnostics,
     calculateNextSyncTime,
